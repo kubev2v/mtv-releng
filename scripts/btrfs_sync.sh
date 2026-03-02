@@ -6,6 +6,7 @@ set -e
 
 # Source utility functions
 source scripts/util.sh
+source scripts/auth.sh
 
 # ============================================================================
 # Configuration Variables (can be overridden externally)
