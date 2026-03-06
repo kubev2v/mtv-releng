@@ -145,3 +145,7 @@ def get_jenkins_analyzer_url() -> str:
 
 def get_slack_failure_mentions() -> list[str]:
     return _parse_simple("slack_failure_mentions")
+
+
+def get_db_path() -> str:
+    return _parse_simple("db_path")

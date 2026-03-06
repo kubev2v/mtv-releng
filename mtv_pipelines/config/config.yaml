@@ -11,10 +11,10 @@ mtv_cpe_version_init: "2.9.5"
 # Cluster to OCP version mapping
 # if you want to disable CI for some OCP version, use "none"
 cluster_mappings:
-  "4.22": "none"
-  "4.21": "qemtv-01"
-  "4.20": "qemtv-02"
-  "4.19": "qemtv-03"
+  "4.22": "qemtv-01"
+  "4.21": "qemtv-02"
+  "4.20": "qemtv-03"
+  "4.19": "qemtv-04"
   "4.18": "none"
 
 # Current MTV versions (not used for anything yet)
@@ -96,6 +96,9 @@ jenkins_wait_refresh_seconds: 60
 
 # Jenkins analyzer URL
 jenkins_analyzer_url: "https://jenkins-job-insight-mtv-team.apps.cnv2.engineering.redhat.com"
+
+# Database path (SQLite)
+db_path: "sqlite:///mtv.db"
 
 # Allowed jira project keys, used for slack message
 allowed_project_keys:

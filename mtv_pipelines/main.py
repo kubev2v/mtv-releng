@@ -1,16 +1,62 @@
 import asyncio
+import datetime
+import json
 import logging
 import os
 import sys
+import traceback
 from argparse import ArgumentParser
 from importlib import import_module
 
+from core.db import DB
 from core.pipeline import Pipeline
 from core.task import get_pipeline_tasks
+from pydantic import BaseModel
 
 PRETTY_PRINT = "  "
 PIPELINES = {}
 PL_DIR = os.path.join(os.getcwd(), "mtv_pipelines", "pipelines")
+logger = logging.getLogger(__name__)
+
+
+def _sync_pipelines_to_db():
+    try:
+        db = DB()
+        for pl_name in PIPELINES:
+            tasks = get_pipeline_tasks(pl_name)
+            existing = db.read_pipelines(name=pl_name)
+            if not existing:
+                pipeline = db.write_pipeline(
+                    name=pl_name, num_tasks=len(tasks)
+                )
+            else:
+                pipeline = existing[0]
+                if pipeline.num_tasks != len(tasks):
+                    db.update_pipeline_num_tasks(pipeline.id, len(tasks))
+
+            for task in tasks:
+                deps = json.dumps([d.name for d in task.dependencies])
+                subs = json.dumps([s.name for s in task.subscribers])
+                existing_task = db.read_tasks(
+                    name=task.name, pipeline_id=pipeline.id
+                )
+                if not existing_task:
+                    db.write_task(
+                        name=task.name,
+                        pipeline_id=pipeline.id,
+                        dependencies=deps,
+                        subscribers=subs,
+                    )
+                else:
+                    t = existing_task[0]
+                    if t.dependencies != deps or t.subscribers != subs:
+                        db.update_task(
+                            t.id,
+                            dependencies=deps,
+                            subscribers=subs,
+                        )
+    except Exception as e:
+        logger.error(f"Could not sync pipelines to DB: {e}")
 
 
 # Dynamically import all of the pipelines
@@ -25,18 +71,37 @@ def import_pipelines():
             PIPELINES[pl_name] = import_module(f"pipelines.{pl_name}")
 
 
+class JsonStringFormatter(logging.Formatter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def format(self, record):
+        if (
+            type(record.msg) == dict
+            or type(record.msg) == list
+            or type(record.msg) == BaseModel
+        ):
+            record.msg = json.dumps(json.dumps(record.msg))
+            return super().format(record)
+        record.msg = json.dumps(str(record.msg))
+        return super().format(record)
+
+
 def setup_logging(level, pipeline_name):
     log_format = (
         '{"level":"$levelname","time":"$asctime",'
-        '"source":"$name","msg":"$message"}'
+        '"source":"$name","msg":$message}'
     )
 
-    formatter = logging.Formatter(fmt=log_format, style="$")
+    formatter = JsonStringFormatter(fmt=log_format, style="$")
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
-    file_handler = logging.FileHandler(f"logs/{pipeline_name}.log", mode="w")
+    file_handler = logging.FileHandler(
+        f"logs/{pipeline_name}_{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d_%H-%M-%S')}.log",
+        mode="w",
+    )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
@@ -108,6 +173,7 @@ def exec_pipeline(args):
 def run():
     import_pipelines()
     args = arg_parse()
+    _sync_pipelines_to_db()
     exec_pipeline(args)
 
 
@@ -115,4 +181,4 @@ if __name__ == "__main__":
     try:
         run()
     except Exception as e:
-        logging.exception(e)
+        logger.error(traceback.format_exc())

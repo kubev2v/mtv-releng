@@ -16,8 +16,9 @@ PIPELINE_TASKS = {}
 logger = logging.getLogger(__name__)
 
 
-class TaskState(Enum):
+class TaskStatus(Enum):
     NOT_STARTED = auto()
+    PENDING = auto()
     RUNNING = auto()
     FINISHED = auto()
     FAILED = auto()
@@ -38,7 +39,7 @@ class Task:
         self.tg: asyncio.TaskGroup
         self.input_model: Type[Any] = input_model
         self.output_model: Type[Any] = output_model
-        self.state = TaskState.NOT_STARTED
+        self.status = TaskStatus.NOT_STARTED
         self.input_data: Any | None = None
         self.output_data: Any | None = None
         self.subscribers: list["Task"] = []
@@ -89,11 +90,14 @@ class Task:
         raise ex
 
     def can_run(self) -> bool:
-        if self.state != TaskState.NOT_STARTED:
+        if self.status != TaskStatus.NOT_STARTED:
             return False
         return all(
             list(
-                map(lambda d: d.state == TaskState.FINISHED, self.dependencies)
+                map(
+                    lambda d: d.status == TaskStatus.FINISHED,
+                    self.dependencies,
+                )
             )
         )
 
@@ -112,7 +116,7 @@ class Task:
     def details(self):
         s = f"Name: {self.name}\n"
         s += f"Func: {self.func}\n"
-        s += f"State: {self.state}\n"
+        s += f"Status: {self.status}\n"
         s += f"Input: {self.input_model}\n"
         s += f"Output: {self.output_model}\n"
         s += f"Deps: {list(map(lambda d: d.name, self.dependencies))}\n"
