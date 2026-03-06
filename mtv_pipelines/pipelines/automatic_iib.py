@@ -612,6 +612,18 @@ async def trigger_jenkins_jobs(
                         ocp_version=ocps[1],
                     )
                 )
+            # Limit to 2.11 on 4.20
+            if "2.11" in version:
+                job = await jm.trigger_storage_offload(version, iib_short)
+                if job:
+                    results.append(
+                        JenkinsJobDTO(
+                            iib_version=iib_version,
+                            job_name=job["job_name"],
+                            build_number=job["job_number"],
+                            ocp_version="v4.20",
+                        )
+                    )
     except requests.exceptions.ConnectionError as ex:
         logger.error("Couldn't trigger jenkins CI jobs due to network issues")
         logger.exception(ex)
@@ -640,6 +652,8 @@ async def wait_for_jenkins_jobs(
     try:
         jm = JenkinsManager(config.get_jenkins_url())
         for job in data:
+            if "offload" in job.job_name:
+                continue
             tasks.append(tg.create_task(wait(job)))
         for task in tasks:
             results.append(await task)
@@ -661,6 +675,8 @@ async def analyze_jobs(
 
     results = []
     for job in data:
+        if "offload" in job.job.job_name:
+            continue
         ja = JenkinsAnalyzer()
         results.append(ja.analyze_job(job))
 
@@ -683,6 +699,12 @@ async def send_slack_ci_msg(
     if not data.task_outputs.get(send_slack_build_msg.name):
         logger.warning(
             f"Previous task didn't return any slack build message timestamps"
+        )
+        return []
+
+    if args.skip_slack:
+        logger.info(
+            "Skipping sending of slack message as --skip-slack arg was provided"
         )
         return []
 

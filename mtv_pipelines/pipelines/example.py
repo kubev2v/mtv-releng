@@ -54,6 +54,7 @@ async def example_task2(
 async def example_task3(
     data: EmptyDTO, args: Namespace, tg: TaskGroup
 ) -> EmptyDTO:
+    logger.info({"some_data": "Hello from task3"})
     return data
 
 

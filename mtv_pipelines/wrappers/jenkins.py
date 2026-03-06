@@ -2,7 +2,7 @@ import logging
 import time
 
 import jenkins
-from auth.auth import JenkinsAuth
+from auth.auth import JenkinsAuth, StorageOffloadClusterAuth
 from config import config
 from models.dto import JenkinsJobDTO
 
@@ -88,6 +88,31 @@ class JenkinsManager:
             "RUN_TESTS_IN_PARALLEL": "false",
             "CLEAN_CATALOG": "true",
             "ENABLE_JIRA": "true",
+        }
+
+    def get_storage_offload_args(
+        self, mtv_version: str, ocp_version: str, iib: str
+    ):
+        return {
+            "CUSTOM_CLUSTER_NAME": "ocp-edge112",
+            "OCP_API_URL": "https://api.ocp-edge112-0.lab.eng.tlv2.redhat.com:6443",
+            "OCP_USERNAME": "kubeadmin",
+            "OCP_PASSWORD": StorageOffloadClusterAuth().passwd,
+            "OCP_VERSION": ocp_version,
+            "DEPLOY_MTV": True,
+            "IIB_NO": iib,
+            "MTV_VERSION": mtv_version,
+            "MTV_SOURCE": "KONFLUX",
+            "COPYOFFLOAD_STORAGE_DEPLOY": "netapp-trident-deploy",
+            "TRIDENT_STORAGE_ID": "rhos-netapp",
+            "TRIDENT_BACKEND_SECRET_NAME": "trident-backend-secret",
+            "TRIDENT_STORAGE_CLASS_NAME": "trident-storage-class",
+            "SOURCE_PROVIDER": "vsphere-8.0.3-copyoffload-netapp-tlv",
+            "STORAGE_CLASS": "trident-storage-class",
+            "MARKER": "copyoffload",
+            "PYTEST_PARAMS": '--tc=insecure_verify_skip:"true"',
+            "GIT_BRANCH": "main",
+            "MTV_API_TEST_GIT_USER": "RedHatQE",
         }
 
     def get_test_release_gate_args(
@@ -182,6 +207,26 @@ class JenkinsManager:
         ocp_wv = ocp_version.replace("v", "")
 
         job_name = f"mtv-{mtv_xy}-ocp-{ocp_wv}-test-release-non-gate"
+        job_number = await self.run_job(job_name, ci_args)
+        if job_number:
+            return {"job_name": job_name, "job_number": job_number}
+        else:
+            return {}
+
+    async def trigger_storage_offload(
+        self, mtv_version: str, iib: str, ocp_version: str = "v4.20"
+    ):
+        mtv_xy = ".".join(mtv_version.split(".")[:2])
+        ocp_wv = ocp_version.replace("v", "")
+
+        ci_args = self.get_storage_offload_args(mtv_version, ocp_version, iib)
+        if not ci_args:
+            logger.warning(
+                f"Missing arguments, can't trigger a job for {ocp_version}/{mtv_version}"
+            )
+            return {}
+
+        job_name = f"mtv-{mtv_xy}-ocp-{ocp_wv}-copyoffload-tests"
         job_number = await self.run_job(job_name, ci_args)
         if job_number:
             return {"job_name": job_name, "job_number": job_number}

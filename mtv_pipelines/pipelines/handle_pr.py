@@ -53,8 +53,17 @@ def arg_parse(arg_parser):
     )
 
     arg_parser.add_argument(
+        "-j",
         "--skip-jenkins",
         help="Tells the pipeline to skip triggering jenkins jobs",
+        required=False,
+        action="store_true",
+    )
+
+    arg_parser.add_argument(
+        "-s",
+        "--skip-slack",
+        help="Tells the pipeline to skip sending the slack message",
         required=False,
         action="store_true",
     )
@@ -382,6 +391,12 @@ async def send_slack_build_msg(
         logger.warning(f"Previous task didn't return any FBC repos")
         return {}
 
+    if args.skip_slack:
+        logger.info(
+            "Skipping sending of slack message as --skip-slack arg was provided"
+        )
+        return {}
+
     result = {}
     fbc_repo = data.task_outputs[process_pull_request.name]
     b = prepare_slack_build(
@@ -440,6 +455,18 @@ async def trigger_jenkins_jobs(
                     ocp_version=ocps[1],
                 )
             )
+        # Limit to 2.11 on 4.20
+        if "2.11" in version:
+            job = await jm.trigger_storage_offload(version, iib_short)
+            if job:
+                results.append(
+                    JenkinsJobDTO(
+                        iib_version=iib_version,
+                        job_name=job["job_name"],
+                        build_number=job["job_number"],
+                        ocp_version="v4.20",
+                    )
+                )
     except requests.exceptions.ConnectionError as ex:
         logger.error("Couldn't trigger jenkins CI jobs due to network issues")
         logger.exception(ex)
@@ -513,6 +540,12 @@ async def send_slack_ci_msg(
             f"Previous task didn't return any slack build message timestamps"
         )
         return []
+
+    if args.skip_slack:
+        logger.info(
+            "Skipping sending of slack message as --skip-slack arg was provided"
+        )
+        return {}
 
     ts_ver_map: dict[str, list[JenkinsJobAnalysisDTO]] = {}
     jobs: list[JenkinsJobAnalysisDTO] = data.task_outputs[analyze_jobs.name]

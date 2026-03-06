@@ -8,6 +8,7 @@ REGISTRY_PROD_USER = "REGISTRY_PROD_USER"
 REGISTRY_PROD_TOKEN = "REGISTRY_PROD_TOKEN"
 REGISTRY_STAGE_USER = "REGISTRY_STAGE_USER"
 REGISTRY_STAGE_TOKEN = "REGISTRY_STAGE_TOKEN"
+STORAGE_OFFLOAD_CLUSTER = "STORAGE_OFFLOAD_CLUSTER"
 
 
 @dataclass
@@ -31,3 +32,8 @@ class JenkinsAuth:
     def __init__(self):
         self.user = Auth(JENKINS_USER).value
         self.token = Auth(JENKINS_TOKEN).value
+
+
+class StorageOffloadClusterAuth:
+    def __init__(self):
+        self.passwd = Auth(STORAGE_OFFLOAD_CLUSTER).value
