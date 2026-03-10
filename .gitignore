@@ -3,3 +3,4 @@ test/
 .env
 logs/
 .venv/
+data/

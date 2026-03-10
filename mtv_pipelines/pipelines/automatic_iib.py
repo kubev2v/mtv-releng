@@ -199,6 +199,8 @@ async def prepare_fbc_repo(
         fbc_repo.git.config("user.email", config.get_git_email())
         fbc_repo.git.config("user.name", config.get_git_name())
 
+        GHCLI(fbc_repo.tmp_dir.name).auth()
+
         # Download OPM tool, offload downloading to threads
         await tg.create_task(to_thread(fbc_repo.download_opm))
 

@@ -5,6 +5,8 @@ import subprocess
 
 from config import config
 
+from mtv_pipelines.auth import auth
+
 COMMAND = ["gh"]
 AUTOMATION_LABEL = "automation"
 
@@ -30,6 +32,25 @@ class GHCLI:
         except subprocess.CalledProcessError:
             err = result.stderr.decode("utf-8")
             raise RuntimeError(err)
+
+    def auth(self):
+        self.cmd = [
+            "echo",
+            f"${auth.GITHUB_TOKEN}",
+            "|",
+            "gh",
+            "auth",
+            "login",
+            "-p",
+            "https",
+            "-h",
+            "github.com",
+            "--with-token",
+        ]
+        self.__exec__()
+
+        self.cmd = ["gh", "auth", "setup-git"]
+        self.__exec__()
 
     # Example: gh pr list --head "2.10.2" --label "automation" --json url
     def list_pr(self, branch: str, label: str = AUTOMATION_LABEL):
