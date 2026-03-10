@@ -23,8 +23,8 @@ class JenkinsAnalyzer:
             json={
                 "job_name": job_result.job.job_name,
                 "build_number": job_result.job.build_number,
-                "ai_provider": "claude",
-                "ai_model": "claude-opus-4-6[1m]",
+                "ai_provider": "cursor",
+                "ai_model": "gpt-5.4-xhigh-fast",
             },
             verify=False,
         )
