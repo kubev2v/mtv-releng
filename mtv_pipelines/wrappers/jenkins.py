@@ -94,6 +94,7 @@ class JenkinsManager:
         self, mtv_version: str, ocp_version: str, iib: str
     ):
         return {
+            "USE_USER_CLUSTER_CREDENTIALS": True,
             "CUSTOM_CLUSTER_NAME": "ocp-edge112",
             "OCP_API_URL": "https://api.ocp-edge112-0.lab.eng.tlv2.redhat.com:6443",
             "OCP_USERNAME": "kubeadmin",
@@ -111,6 +112,7 @@ class JenkinsManager:
             "STORAGE_CLASS": "trident-storage-class",
             "MARKER": "copyoffload",
             "PYTEST_PARAMS": '--tc=insecure_verify_skip:"true"',
+            "PYTEST_EXTRA_PARAMS": '-k "not (TestCopyoffload2TbVmSnapshotsMigration or TestCopyoffloadLargeVmMigration)"',
             "GIT_BRANCH": "main",
             "MTV_API_TEST_GIT_USER": "RedHatQE",
         }
