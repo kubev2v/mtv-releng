@@ -343,7 +343,10 @@ class Slack:
             users = config.get_slack_failure_mentions()
             mentions = ""
             for user in users:
-                mentions += f"<@{user}> "
+                if "ic-mtv" in user:
+                    mentions += f"<!subteam^{user}> "
+                else:
+                    mentions += f"<@{user}> "
             if not mentions:
                 return {}
 

@@ -78,6 +78,7 @@ slack_failure_mentions:
   - "U04NPAUEAR1|solenoci"
   - "U018XG9RSP7|myakove"
   - "U03SLKWH0DR|mkrcmari"
+  - "S0AKBSL1Y9L|ic-mtv" # User groups have different slack api tagging mechanism, for now it's hardcoded in slack.py
 
 # Templates direcotry
 templates_dir: "project/templates"
@@ -86,7 +87,7 @@ templates_dir: "project/templates"
 jira_issues: "https://issues.redhat.com/"
 
 # Root cert path inside the container
-root_cert_path: "/home/solenoci/repos/mtv-releng/root.pem"
+root_cert_path: "/app/root.pem"
 
 # Jenkins url
 jenkins_url: "https://jenkins-csb-mtv-qe-main.dno.corp.redhat.com"
@@ -98,7 +99,7 @@ jenkins_wait_refresh_seconds: 60
 jenkins_analyzer_url: "https://jenkins-job-insight-mtv-team.apps.cnv2.engineering.redhat.com"
 
 # Database path (SQLite)
-db_path: "sqlite:///mtv.db"
+db_path: "sqlite:////app/data/mtv.db"
 
 # Allowed jira project keys, used for slack message
 allowed_project_keys:
@@ -107,6 +108,7 @@ allowed_project_keys:
   - "KONFLUX"
   - "ECOPROJECT"
   - "CNV"
+  - "KFLUXSPRT"
 
 # Forklift "component" repositories
 repositories:
