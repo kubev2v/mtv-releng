@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 import time
 from argparse import Namespace
 from enum import Enum, auto
@@ -29,6 +30,7 @@ class Pipeline:
         self._pipeline_run_id: int | None = None
         self._task_run_ids: dict[str, int] = {}
         self._artifactory = Artifactory()
+        self._canceled = False
 
     def validate(self):
         if len(self.tasks) == 0:
@@ -107,6 +109,21 @@ class Pipeline:
         except Exception as e:
             logger.error(f"Failed to skip pending task_runs in DB: {e}")
 
+    def _cancel_active_task_runs(self):
+        for task in self.tasks:
+            if task.status in (TaskStatus.NOT_STARTED, TaskStatus.RUNNING):
+                task.status = TaskStatus.CANCELED
+                self._update_task_run(
+                    task.name, TaskStatus.CANCELED.name, ts_field="ended"
+                )
+                logger.info(f"{task} | Canceled")
+
+    def _handle_sigint(self):
+        logger.info("Received SIGINT, canceling pipeline...")
+        self._canceled = True
+        for async_task in asyncio.all_tasks():
+            async_task.cancel()
+
     def _serialize_data(self, data) -> dict:
         if data is None:
             return {}
@@ -153,9 +170,7 @@ class Pipeline:
             output_data = {}
             for dep in task.dependencies:
                 if self._artifactory.has(dep.name):
-                    output_data[dep.name] = self._artifactory.get(
-                        dep.name
-                    )
+                    output_data[dep.name] = self._artifactory.get(dep.name)
                 elif dep.output_data is not None:
                     output_data[dep.name] = dep.output_data
             input_data = CollectorDTO(task_outputs=output_data)
@@ -177,6 +192,12 @@ class Pipeline:
 
         try:
             output_data = await task.run(input_data, self.args, self.tg)
+        except asyncio.CancelledError:
+            task.status = TaskStatus.CANCELED
+            self._update_task_run(
+                task.name, TaskStatus.CANCELED.name, ts_field="ended"
+            )
+            raise
         except Exception:
             task.status = TaskStatus.FAILED
             self._update_task_run(
@@ -204,6 +225,9 @@ class Pipeline:
         self._pipeline_run_id = self._get_pipeline_run_id()
         self._create_task_runs()
 
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGINT, self._handle_sigint)
+
         try:
             async with asyncio.TaskGroup() as tg:
                 self.tg = tg
@@ -211,17 +235,28 @@ class Pipeline:
                     logger.debug(f"{task} | Checking if task can run")
                     if task.can_run():
                         tg.create_task(self._run_task(task))
-        except Exception as e:
-            logger.error(f"Failed pipeline: {e}")
-            self._skip_pending_task_runs()
-            if self._pipeline_run_id is not None:
-                self._finish_pipeline_run(
-                    self._pipeline_run_id, TaskStatus.FAILED.name
-                )
+        except BaseException as e:
+            if self._canceled:
+                logger.info("Pipeline canceled by user")
+                self._cancel_active_task_runs()
+                if self._pipeline_run_id is not None:
+                    self._finish_pipeline_run(
+                        self._pipeline_run_id,
+                        TaskStatus.CANCELED.name,
+                    )
+            else:
+                logger.error(f"Failed pipeline: {e}")
+                self._skip_pending_task_runs()
+                if self._pipeline_run_id is not None:
+                    self._finish_pipeline_run(
+                        self._pipeline_run_id,
+                        TaskStatus.FAILED.name,
+                    )
             raise
         else:
-            self._skip_pending_task_runs()
             if self._pipeline_run_id is not None:
                 self._finish_pipeline_run(
                     self._pipeline_run_id, TaskStatus.FINISHED.name
                 )
+        finally:
+            loop.remove_signal_handler(signal.SIGINT)
