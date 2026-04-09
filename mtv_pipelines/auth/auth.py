@@ -37,8 +37,10 @@ class JenkinsAuth:
 
 
 class StorageOffloadClusterAuth:
-    def __init__(self):
-        self.passwd = Auth(STORAGE_OFFLOAD_CLUSTER).value
+    """Kubeadmin password for storage-offload Jenkins jobs; env is per-cluster in config."""
+
+    def __init__(self, password_env: str = STORAGE_OFFLOAD_CLUSTER):
+        self.passwd = Auth(password_env).value
 
 
 class RootcozAuth:

@@ -123,6 +123,10 @@ def get_cluster_mappings() -> dict:
     return _parse_simple("cluster_mappings")
 
 
+def get_storage_offload_clusters() -> dict:
+    return _parse_simple("storage_offload_clusters")
+
+
 def get_root_cert_path() -> str:
     return _parse_simple("root_cert_path")
 

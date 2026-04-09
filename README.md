@@ -69,7 +69,8 @@ make run        # run the container
 | `JENKINS_TOKEN` | Jenkins API token |
 | `REGISTRY_PROD_USER` / `REGISTRY_PROD_TOKEN` | Production registry credentials |
 | `REGISTRY_STAGE_USER` / `REGISTRY_STAGE_TOKEN` | Stage registry credentials |
-| `STORAGE_OFFLOAD_CLUSTER` | Storage offload cluster password (optional) |
+| `STORAGE_OFFLOAD_CLUSTER` | Kubeadmin password for the default storage offload cluster (optional) |
+| `STORAGE_OFFLOAD_CLUSTER_EDGE113` | Kubeadmin password for ocp-edge113 (MTV 2.12+, optional) |
 | `ROOTCOZ` | Rootcoz Bearer token for the Jenkins analyzer API |
 
 ---
@@ -247,3 +248,24 @@ All tunable settings live in [`mtv_pipelines/config/config.yaml`](mtv_pipelines/
 - Registry namespaces
 - Component mappings (`cmp_mappings`) — downstream name → upstream + git origin
 - Commit character limit for Slack messages
+- Storage offload cluster mappings (`storage_offload_clusters`) — MTV x.y → cluster name, API URL, OCP version, and `password_env`
+
+### Storage offload clusters
+
+The `storage_offload_clusters` map in `config.yaml` controls which cluster is used for copyoffload tests per MTV minor version:
+
+```yaml
+storage_offload_clusters:
+  "2.11":
+    custom_cluster_name: "ocp-edge112"
+    ocp_api_url: "https://api.ocp-edge112-0.lab.eng.tlv2.redhat.com:6443"
+    ocp_version: "4.20"
+    password_env: "STORAGE_OFFLOAD_CLUSTER"
+  "2.12":
+    custom_cluster_name: "ocp-edge113"
+    ocp_api_url: "https://api.ocp-edge113-0.lab.eng.tlv2.redhat.com:6443"
+    ocp_version: "4.21"
+    password_env: "STORAGE_OFFLOAD_CLUSTER_EDGE113"
+```
+
+Each entry's `password_env` names the environment variable holding the kubeadmin password for that cluster. Add a new entry here (and the corresponding env var to `.env`) to onboard additional clusters.

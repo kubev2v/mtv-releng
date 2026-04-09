@@ -8,6 +8,20 @@ mtv_cutoff_version: "2.10.5"
 # CPEs started with MTV 2.9.5 (https://github.com/kubev2v/forklift/commit/b2ba256c97a03ad47fb3717a50f92397b6b4a297)
 mtv_cpe_version_init: "2.9.5"
 
+# Storage offload copyoffload Jenkins jobs: MTV x.y -> lab cluster API
+# password_env: env var with kubeadmin password (default: STORAGE_OFFLOAD_CLUSTER)
+storage_offload_clusters:
+  "2.11":
+    custom_cluster_name: "ocp-edge112"
+    ocp_api_url: "https://api.ocp-edge112-0.lab.eng.tlv2.redhat.com:6443"
+    ocp_version: "4.20"
+    password_env: "STORAGE_OFFLOAD_CLUSTER"
+  "2.12":
+    custom_cluster_name: "ocp-edge113"
+    ocp_api_url: "https://api.ocp-edge113-0.lab.eng.tlv2.redhat.com:6443"
+    ocp_version: "4.21"
+    password_env: "STORAGE_OFFLOAD_CLUSTER_EDGE113"
+
 # Cluster to OCP version mapping
 # if you want to disable CI for some OCP version, use "none"
 cluster_mappings:
