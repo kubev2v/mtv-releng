@@ -122,6 +122,7 @@ class JenkinsManager:
             "PYTEST_EXTRA_PARAMS": '-k "not (TestCopyoffload2TbVmSnapshotsMigration or TestCopyoffloadLargeVmMigration or TestCopyoffloadScaleMigration)"',
             "GIT_BRANCH": "main",
             "MTV_API_TEST_GIT_USER": "RedHatQE",
+            "SEND_EMAIL_ON_COMPLETION": True,
         }
 
     def get_test_release_gate_args(
