@@ -16,14 +16,14 @@ def get_commit_diff(
     if prev_commit not in [commit.get("sha") for commit in commits]:
         logger.error(
             f"Previous commit '{prev_commit}' not found in "
-            f"{[commit.get("sha") for commit in commits]}"
+            f"{[commit.get('sha') for commit in commits]}"
         )
         return results
 
     if next_commit not in [commit.get("sha") for commit in commits]:
         logger.error(
             f"Next commit '{next_commit}' not found in "
-            f"{[commit.get("sha") for commit in commits]}"
+            f"{[commit.get('sha') for commit in commits]}"
         )
         return results
 

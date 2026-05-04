@@ -180,6 +180,7 @@ class Slack:
         ocp_versions.rich_text([SB.RichText.section(ocp_lines)])
 
         prev_build = None
+        jira_issues = None
         diff_sections = []
         if msg.prev_build[0]:
             logger.debug("Preparing IIB previous build section")
@@ -193,6 +194,33 @@ class Slack:
                     msg.prev_build[1].split("/")[-1],
                 ]
             )
+
+            logger.debug("Collecting all Jira issues across all origins")
+            seen_issues: set[str] = set()
+            all_issues_elements = []
+            for change in msg.changes:
+                for commit in change.diff:
+                    for issue in commit.issues:
+                        issue_upper = issue.upper()
+                        if issue_upper not in seen_issues:
+                            seen_issues.add(issue_upper)
+                            issue_url = (
+                                f"{config.get_jira_url().rstrip('/')}/browse/{issue_upper}"
+                            )
+                            all_issues_elements.extend(
+                                [
+                                    SB.RichText.link(issue_url, issue_upper),
+                                    SB.RichText.text("\n"),
+                                ]
+                            )
+
+            jira_issues = SB()
+            jira_issues.header("Jira Issues")
+            jira_issues.divider()
+            if all_issues_elements:
+                jira_issues.rich_text([SB.RichText.section(all_issues_elements)])
+            else:
+                jira_issues.section("_No Jira issues found_")
 
             logger.debug("Preparing IIB diff sections")
             for change in msg.changes:
@@ -296,6 +324,8 @@ class Slack:
             tses.append(ts)
             tses.append(self.send_block(ocp_versions.build(), self.channel, ts))
             tses.append(self.send_block(prev_build.build(), self.channel, ts))
+            if jira_issues is not None:
+                tses.append(self.send_block(jira_issues.build(), self.channel, ts))
             for ds in diff_sections:
                 tses.append(self.send_block(ds.build(), self.channel, ts))
             tses.append(self.send_block(konflux.build(), self.channel, ts))

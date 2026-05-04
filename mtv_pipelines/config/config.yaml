@@ -88,7 +88,7 @@ slack_failure_mentions:
 templates_dir: "project/templates"
 
 # Jira
-jira_issues: "https://issues.redhat.com/"
+jira_issues: "https://redhat.atlassian.net/"
 
 # Root cert path inside the container
 root_cert_path: "/app/root.pem"
