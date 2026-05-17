@@ -262,7 +262,12 @@ class JenkinsManager:
     ):
         mtv_xy = ".".join(mtv_version.split(".")[:2])
         cluster_cfg = config.get_storage_offload_clusters().get(mtv_xy, {})
-        ocp_version = cluster_cfg.get("ocp_version", "4.20")
+        ocp_version = cluster_cfg.get("ocp_version")
+        if not ocp_version:
+            logger.error(
+                f"Missing ocp_version for MTV {mtv_xy} in storage_offload_clusters"
+            )
+            return {}
         ocp_wv = ocp_version.replace("v", "")
 
         ci_args = self.get_storage_offload_args(mtv_version, ocp_version, iib)

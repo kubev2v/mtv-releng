@@ -622,18 +622,20 @@ async def trigger_jenkins_jobs(
                 )
             mtv_xy = ".".join(version.split(".")[:2])
             if mtv_xy in config.get_storage_offload_clusters():
+                cluster_cfg = config.get_storage_offload_clusters()[mtv_xy]
+                storage_ocp = f'v{str(cluster_cfg["ocp_version"]).replace("v", "")}'
                 job = await jm.trigger_storage_offload(version, iib_short)
-                job_url_coro = await jm.get_job_info(
-                    job["job_name"], job["job_number"]
-                )
-                job_url = job_url_coro.get("url", "")
                 if job:
+                    job_url_coro = await jm.get_job_info(
+                        job["job_name"], job["job_number"]
+                    )
+                    job_url = job_url_coro.get("url", "")
                     results.append(
                         JenkinsJobDTO(
                             iib_version=iib_version,
                             job_name=job["job_name"],
                             build_number=job["job_number"],
-                            ocp_version="v4.20",
+                            ocp_version=storage_ocp,
                             job_url=job_url,
                         )
                     )
