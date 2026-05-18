@@ -621,8 +621,9 @@ async def trigger_jenkins_jobs(
                     )
                 )
             mtv_xy = ".".join(version.split(".")[:2])
-            if mtv_xy in config.get_storage_offload_clusters():
-                cluster_cfg = config.get_storage_offload_clusters()[mtv_xy]
+            clusters = config.get_storage_offload_clusters()
+            if mtv_xy in clusters:
+                cluster_cfg = clusters[mtv_xy]
                 storage_ocp = f'v{str(cluster_cfg["ocp_version"]).replace("v", "")}'
                 job = await jm.trigger_storage_offload(version, iib_short)
                 if job:

@@ -69,8 +69,8 @@ make run        # run the container
 | `JENKINS_TOKEN` | Jenkins API token |
 | `REGISTRY_PROD_USER` / `REGISTRY_PROD_TOKEN` | Production registry credentials |
 | `REGISTRY_STAGE_USER` / `REGISTRY_STAGE_TOKEN` | Stage registry credentials |
-| `STORAGE_OFFLOAD_CLUSTER` | Kubeadmin password for the default storage offload cluster (optional) |
-| `STORAGE_OFFLOAD_CLUSTER_EDGE113` | Kubeadmin password for ocp-edge113 (MTV 2.12+, optional) |
+| `STORAGE_OFFLOAD_CLUSTER` | Kubeadmin password for ocp-edge112; required when MTV 2.11 storage offload is enabled |
+| `STORAGE_OFFLOAD_CLUSTER_EDGE113` | Kubeadmin password for ocp-edge113; required when MTV 2.12 storage offload is enabled |
 | `ROOTCOZ` | Rootcoz Bearer token for the Jenkins analyzer API |
 
 ---
