@@ -270,7 +270,7 @@ class JenkinsManager:
             return {}
         ocp_wv = ocp_version.replace("v", "")
 
-        ci_args = self.get_storage_offload_args(mtv_version, ocp_version, iib)
+        ci_args = self.get_storage_offload_args(mtv_version, ocp_wv, iib)
         if not ci_args:
             logger.warning(
                 f"Missing arguments, can't trigger a job for {ocp_version}/{mtv_version}"
