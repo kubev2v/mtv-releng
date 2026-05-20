@@ -3,7 +3,7 @@ import time
 
 import jenkins
 from auth.auth import (
-    STORAGE_OFFLOAD_CLUSTER,
+    STORAGE_OFFLOAD_CLUSTER_EDGE112,
     JenkinsAuth,
     StorageOffloadClusterAuth,
 )
@@ -113,7 +113,7 @@ class JenkinsManager:
             )
             return {}
         password_env = cluster_cfg.get(
-            "password_env", STORAGE_OFFLOAD_CLUSTER
+            "password_env", STORAGE_OFFLOAD_CLUSTER_EDGE112
         )
         return {
             "USE_USER_CLUSTER_CREDENTIALS": True,

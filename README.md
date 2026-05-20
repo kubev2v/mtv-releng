@@ -69,7 +69,7 @@ make run        # run the container
 | `JENKINS_TOKEN` | Jenkins API token |
 | `REGISTRY_PROD_USER` / `REGISTRY_PROD_TOKEN` | Production registry credentials |
 | `REGISTRY_STAGE_USER` / `REGISTRY_STAGE_TOKEN` | Stage registry credentials |
-| `STORAGE_OFFLOAD_CLUSTER` | Kubeadmin password for ocp-edge112; required when MTV 2.11 storage offload is enabled |
+| `STORAGE_OFFLOAD_CLUSTER_EDGE112` | Kubeadmin password for ocp-edge112; required when MTV 2.11 storage offload is enabled |
 | `STORAGE_OFFLOAD_CLUSTER_EDGE113` | Kubeadmin password for ocp-edge113; required when MTV 2.12 storage offload is enabled |
 | `ROOTCOZ` | Rootcoz Bearer token for the Jenkins analyzer API |
 
@@ -260,7 +260,7 @@ storage_offload_clusters:
     custom_cluster_name: "ocp-edge112"
     ocp_api_url: "https://api.ocp-edge112-0.lab.eng.tlv2.redhat.com:6443"
     ocp_version: "4.20"
-    password_env: "STORAGE_OFFLOAD_CLUSTER"
+    password_env: "STORAGE_OFFLOAD_CLUSTER_EDGE112"
   "2.12":
     custom_cluster_name: "ocp-edge113"
     ocp_api_url: "https://api.ocp-edge113-0.lab.eng.tlv2.redhat.com:6443"

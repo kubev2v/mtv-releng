@@ -9,13 +9,13 @@ mtv_cutoff_version: "2.10.5"
 mtv_cpe_version_init: "2.9.5"
 
 # Storage offload copyoffload Jenkins jobs: MTV x.y -> lab cluster API
-# password_env: env var with kubeadmin password (default: STORAGE_OFFLOAD_CLUSTER)
+# password_env: env var with kubeadmin password (default: STORAGE_OFFLOAD_CLUSTER_EDGE112)
 storage_offload_clusters:
   "2.11":
     custom_cluster_name: "ocp-edge112"
     ocp_api_url: "https://api.ocp-edge112-0.lab.eng.tlv2.redhat.com:6443"
     ocp_version: "4.20"
-    password_env: "STORAGE_OFFLOAD_CLUSTER"
+    password_env: "STORAGE_OFFLOAD_CLUSTER_EDGE112"
   "2.12":
     custom_cluster_name: "ocp-edge113"
     ocp_api_url: "https://api.ocp-edge113-0.lab.eng.tlv2.redhat.com:6443"

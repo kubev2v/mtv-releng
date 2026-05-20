@@ -8,7 +8,7 @@ REGISTRY_PROD_USER = "REGISTRY_PROD_USER"
 REGISTRY_PROD_TOKEN = "REGISTRY_PROD_TOKEN"
 REGISTRY_STAGE_USER = "REGISTRY_STAGE_USER"
 REGISTRY_STAGE_TOKEN = "REGISTRY_STAGE_TOKEN"
-STORAGE_OFFLOAD_CLUSTER = "STORAGE_OFFLOAD_CLUSTER"
+STORAGE_OFFLOAD_CLUSTER_EDGE112 = "STORAGE_OFFLOAD_CLUSTER_EDGE112"
 GITHUB_TOKEN = "GH_TOKEN"
 ROOTCOZ_TOKEN = "ROOTCOZ"
 
@@ -39,7 +39,7 @@ class JenkinsAuth:
 class StorageOffloadClusterAuth:
     """Kubeadmin password for storage-offload Jenkins jobs; env is per-cluster in config."""
 
-    def __init__(self, password_env: str = STORAGE_OFFLOAD_CLUSTER):
+    def __init__(self, password_env: str = STORAGE_OFFLOAD_CLUSTER_EDGE112):
         self.passwd = Auth(password_env).value
 
 
