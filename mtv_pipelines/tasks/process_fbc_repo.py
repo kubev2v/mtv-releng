@@ -16,7 +16,7 @@ async def process_fbc_repo(fbc_repo: FBCRepo, tg: TaskGroup, branch: str = ""):
     logger.info(f"Looking for previous commit with {bundle.version}")
     commits = fbc_repo.git.log(config.get_iib_max_commits())
     for commit in commits:
-        if str(bundle.version) in commit.get("message", ""):
+        if str(bundle.version) in commit.get("message", "") and "-release" not in commit.get("message", ""):
             logger.info(
                 f"Found previous commit {commit.get("message")}"
                 f" ({commit.get("sha")})"

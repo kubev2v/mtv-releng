@@ -25,6 +25,14 @@ build-backend = "poetry.core.masonry.api"
 [tool.black]
 line-length = 79
 
+[tool.pytest.ini_options]
+testpaths = ["mtv_pipelines/tests"]
+pythonpath = ["mtv_pipelines"]
+
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.3"
+

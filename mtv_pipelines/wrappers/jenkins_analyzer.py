@@ -9,6 +9,7 @@ from models.dto import (
     JenkinsJobAnalysisDTO,
     JenkinsJobResultDTO,
 )
+from utils import forklift_branch_from_jenkins_job
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +25,39 @@ class JenkinsAnalyzer:
                     "Authorization": RootcozAuth().bearer_header,
                 },
                 json={
+                    "type": "jenkins",
                     "job_name": job_result.job.job_name,
                     "build_number": job_result.job.build_number,
-                    "ai_provider": "cursor",
-                    "ai_model": "gpt-5.4-xhigh-fast",
+                    "ai_provider": "claude",
+                    "ai_model": "claude-opus-4-6-1m",
                     "get_job_artifacts": True,
-                    "type": "jenkins",
+                    "peer_ai_configs": [
+                        {
+                            "ai_provider": "cursor",
+                            "ai_model": "gpt-5.4[context=272k,reasoning=medium,fast=false]",
+                        },
+                        {
+                            "ai_provider": "cursor",
+                            "ai_model": "composer-2.5[fast=false]",
+                        },
+                    ],
+                    "peer_analysis_max_rounds": 3,
+                    "tests_repo_url": "https://github.com/RedHatQE/mtv-api-tests",
+                    "additional_repos": [
+                        {
+                            "name": "mtv_product_code",
+                            "url": "https://github.com/kubev2v/forklift",
+                            "ref": forklift_branch_from_jenkins_job(job_result.job),
+                        },
+                        {
+                            "name": "mtv_deploy_code",
+                            "url": "https://gitlab.cee.redhat.com/migrationqe/mtv-autodeploy",
+                        },
+                        {
+                            "name": "mtv_jenkins_code",
+                            "url": "https://gitlab.cee.redhat.com/ccit/jenkins-csb-customers/mtv-qe-casc-main",
+                        },
+                    ],
                 },
                 verify=False,
             )
@@ -51,7 +79,7 @@ class JenkinsAnalyzer:
                 continue
             try:
                 bn = int(child.get("build_number") or 0)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 bn = 0
             children.append(
                 JenkinsChildJobAnalysisDTO(

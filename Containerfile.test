@@ -1,0 +1,14 @@
+FROM python:3.14
+
+WORKDIR /app
+
+COPY mtv_pipelines/ ./mtv_pipelines/
+COPY pyproject.toml .
+COPY poetry.lock .
+COPY README.md .
+
+RUN pip install --quiet poetry
+
+RUN poetry install --with dev
+
+CMD ["poetry", "run", "pytest", "--tb=short"]
