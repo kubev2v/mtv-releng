@@ -378,6 +378,59 @@ class TestJenkinsManager:
             result = run(mgr.trigger_release_gate("2.11.0", "v4.21", "iib-1"))
         assert result == {}
 
+    # -- get_upgrade_args / trigger_upgrade ------------------------------------
+
+    def test_upgrade_args_includes_upgrade_from_version(self, mgr):
+        with patch(
+            "wrappers.jenkins.config.get_cluster_mappings",
+            return_value={"4.21": "cluster-a"},
+        ):
+            args = mgr.get_upgrade_args("2.11.0", "4.21", "iib-123", "2.10")
+        assert args["CLUSTER_NAME"] == "cluster-a"
+        assert args["MATRIX_TYPE"] == "UPGRADE"
+        assert args["IIB_NO"] == "iib-123"
+        assert args["MTV_VERSION"] == "2.11.0"
+        assert args["OCP_VERSION"] == "4.21"
+        assert args["MTV_UPGRADE_FROM_VERSION"] == "2.10"
+
+    def test_upgrade_args_raises_on_unknown_ocp(self, mgr):
+        with patch(
+            "wrappers.jenkins.config.get_cluster_mappings",
+            return_value={"4.21": "cluster-a"},
+        ):
+            with pytest.raises(ValueError, match="not in cluster mappings"):
+                mgr.get_upgrade_args("2.11.0", "9.99", "iib-x", "2.10")
+
+    def test_upgrade_args_returns_empty_when_cluster_none(self, mgr):
+        with patch(
+            "wrappers.jenkins.config.get_cluster_mappings",
+            return_value={"4.21": "none"},
+        ):
+            args = mgr.get_upgrade_args("2.11.0", "4.21", "iib-x", "2.10")
+        assert args == {}
+
+    def test_trigger_upgrade_returns_job_info(self, mgr):
+        with (
+            patch(
+                "wrappers.jenkins.config.get_cluster_mappings",
+                return_value={"4.21": "cluster-a"},
+            ),
+            patch.object(mgr, "run_job", new_callable=AsyncMock, return_value=10),
+        ):
+            result = run(mgr.trigger_upgrade("2.11.0", "v4.21", "iib-1", "2.10"))
+        assert result["job_name"] == "mtv-2.11-ocp-4.21-test-release-upgrade"
+        assert result["job_number"] == 10
+
+    def test_trigger_upgrade_returns_empty_when_no_job(self, mgr):
+        with (
+            patch(
+                "wrappers.jenkins.config.get_cluster_mappings",
+                return_value={"4.21": "none"},
+            ),
+        ):
+            result = run(mgr.trigger_upgrade("2.11.0", "v4.21", "iib-1", "2.10"))
+        assert result == {}
+
 
 # ---------------------------------------------------------------------------
 # JenkinsAnalyzer

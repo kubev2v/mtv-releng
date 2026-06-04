@@ -603,6 +603,49 @@ async def trigger_jenkins_jobs(
                     )
                 )
 
+            bundle_ver = fbc_repo.for_bundle.version
+            if bundle_ver.minor > 0:
+                major_upgrade_from = f"{bundle_ver.major}.{bundle_ver.minor - 1}"
+                job = await jm.trigger_upgrade(
+                    version,
+                    ocps[1],
+                    iib_short_for_target_ocp(iib_short, ocps[1]),
+                    major_upgrade_from,
+                )
+                if job:
+                    job_url_coro = await jm.get_job_info(job["job_name"], job["job_number"])
+                    job_url = job_url_coro.get("url", "")
+                    results.append(
+                        JenkinsJobDTO(
+                            iib_version=iib_version,
+                            job_name=job["job_name"],
+                            build_number=job["job_number"],
+                            ocp_version=ocps[1],
+                            job_url=job_url,
+                        )
+                    )
+
+            if bundle_ver.patch > 0:
+                minor_upgrade_from = f"{bundle_ver.major}.{bundle_ver.minor}"
+                job = await jm.trigger_upgrade(
+                    version,
+                    ocps[0],
+                    iib_short_for_target_ocp(iib_short, ocps[0]),
+                    minor_upgrade_from,
+                )
+                if job:
+                    job_url_coro = await jm.get_job_info(job["job_name"], job["job_number"])
+                    job_url = job_url_coro.get("url", "")
+                    results.append(
+                        JenkinsJobDTO(
+                            iib_version=iib_version,
+                            job_name=job["job_name"],
+                            build_number=job["job_number"],
+                            ocp_version=ocps[0],
+                            job_url=job_url,
+                        )
+                    )
+
             mtv_xy = ".".join(version.split(".")[:2])
             clusters = config.get_storage_offload_clusters()
             if mtv_xy in clusters:

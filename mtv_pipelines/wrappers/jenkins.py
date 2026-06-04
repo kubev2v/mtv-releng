@@ -196,6 +196,35 @@ class JenkinsManager:
         args["REMOTE_CLUSTER_NAME"] = cluster
         return args
 
+    def get_upgrade_args(
+        self, mtv_version: str, ocp_version: str, iib: str, upgrade_from_version: str
+    ) -> dict:
+        cluster_mappings = config.get_cluster_mappings()
+        args = self.get_mtv_ci_args()
+        args["IIB_NO"] = iib
+        args["MTV_VERSION"] = mtv_version
+        args["MTV_XY_VERSION"] = ".".join(mtv_version.split(".")[:2])
+        args["OCP_VERSION"] = ocp_version
+        args["OCP_XY_VERSION"] = ocp_version
+        args["PYTEST_EXTRA_PARAMS"] = args["PYTEST_EXTRA_PARAMS"].replace(
+            "{ocp}", ocp_version
+        )
+        args["MATRIX_TYPE"] = "UPGRADE"
+        args["MTV_UPGRADE_FROM_VERSION"] = upgrade_from_version
+        cluster = cluster_mappings.get(ocp_version, "")
+        if not cluster:
+            raise ValueError(
+                f"OCP {ocp_version} not in cluster mappings {cluster_mappings}"
+            )
+        if cluster.lower() == "none":
+            logger.warning(
+                f"OCP {ocp_version} disabled in cluster mappings {cluster_mappings}"
+            )
+            return {}
+        args["CLUSTER_NAME"] = cluster
+        args["REMOTE_CLUSTER_NAME"] = cluster
+        return args
+
     def get_ui_testing_args(
         self, mtv_version: str, iib: str, target_cluster: str
     ):
@@ -251,6 +280,27 @@ class JenkinsManager:
         ocp_wv = ocp_version.replace("v", "")
 
         job_name = f"mtv-{mtv_xy}-ocp-{ocp_wv}-test-release-non-gate"
+        job_number = await self.run_job(job_name, ci_args)
+        if job_number:
+            return {"job_name": job_name, "job_number": job_number}
+        else:
+            return {}
+
+    async def trigger_upgrade(
+        self, mtv_version: str, ocp_version: str, iib: str, upgrade_from_version: str
+    ) -> dict:
+        ci_args = self.get_upgrade_args(
+            mtv_version, ocp_version.replace("v", ""), iib, upgrade_from_version
+        )
+        if not ci_args:
+            logger.warning(
+                f"Missing arguments, can't trigger a job for {ocp_version}/{mtv_version}"
+            )
+            return {}
+        mtv_xy = ".".join(mtv_version.split(".")[:2])
+        ocp_wv = ocp_version.replace("v", "")
+
+        job_name = f"mtv-{mtv_xy}-ocp-{ocp_wv}-test-release-upgrade"
         job_number = await self.run_job(job_name, ci_args)
         if job_number:
             return {"job_name": job_name, "job_number": job_number}
