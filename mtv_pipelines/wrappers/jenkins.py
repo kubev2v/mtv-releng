@@ -127,7 +127,7 @@ class JenkinsManager:
             "MTV_VERSION": mtv_version,
             "MTV_SOURCE": "KONFLUX",
             "COPYOFFLOAD_STORAGE_DEPLOY": "netapp-trident-deploy",
-            "TRIDENT_STORAGE_ID": "rhos-netapp",
+            "TRIDENT_STORAGE_ID": "rhos-netapp-san-economy-iscsi",
             "TRIDENT_BACKEND_SECRET_NAME": "trident-backend-secret",
             "TRIDENT_STORAGE_CLASS_NAME": "trident-storage-class",
             "SOURCE_PROVIDER": "vsphere-8.0.3-copyoffload-netapp-tlv",
