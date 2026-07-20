@@ -346,13 +346,13 @@ class TestJenkinsManager:
 
     # -- get_test_release_non_gate_args --------------------------------------
 
-    def test_non_gate_args_sets_tier1_matrix(self, mgr):
+    def test_non_gate_args_sets_release_non_gate_matrix(self, mgr):
         with patch(
             "wrappers.jenkins.config.get_cluster_mappings",
             return_value={"4.21": "cluster-b"},
         ):
             args = mgr.get_test_release_non_gate_args("2.11.0", "4.21", "iib-456")
-        assert args["MATRIX_TYPE"] == "TIER1"
+        assert args["MATRIX_TYPE"] == "RELEASE_NON_GATE"
 
     # -- trigger_release_gate (async) ----------------------------------------
 

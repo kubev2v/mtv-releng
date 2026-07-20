@@ -100,10 +100,10 @@ for version in $(echo $latest_shas | jq '. | keys.[]' -r); do
 
   if [[ $version == "2.11.0" ]]; then
     scripts/jenkins_trigger.sh trigger "$iib_short" "$version" '4.21' 'false' 'qemtv-01' 'gate' 'RELEASE'
-    scripts/jenkins_trigger.sh trigger "$iib_short" "$version" '4.20' 'false' 'qemtv-02' 'non-gate' 'TIER1'
+    scripts/jenkins_trigger.sh trigger "$iib_short" "$version" '4.20' 'false' 'qemtv-02' 'non-gate' 'RELEASE_NON_GATE'
   elif [[ $version == *"2.10"* ]]; then
     scripts/jenkins_trigger.sh trigger "$iib_short" "$version" '4.20' 'true' 'qemtv-02' 'gate' 'RELEASE'
-    scripts/jenkins_trigger.sh trigger "$iib_short" "$version" '4.19' 'false' 'qemtv-03' 'non-gate' 'TIER1'
+    scripts/jenkins_trigger.sh trigger "$iib_short" "$version" '4.19' 'false' 'qemtv-03' 'non-gate' 'RELEASE_NON_GATE'
   fi
 
   # for ocp in $(echo $ocp_urls | jq -r '. | keys.[]'); do

@@ -181,7 +181,7 @@ class JenkinsManager:
         args["PYTEST_EXTRA_PARAMS"] = args["PYTEST_EXTRA_PARAMS"].replace(
             "{ocp}", ocp_version
         )
-        args["MATRIX_TYPE"] = "TIER1"
+        args["MATRIX_TYPE"] = "RELEASE_NON_GATE"
         cluster = cluster_mappings.get(ocp_version, "")
         if not cluster:
             raise ValueError(
