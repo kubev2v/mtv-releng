@@ -52,6 +52,7 @@ class GHCLI:
 
     # Example: gh pr list --head "2.10.2" --label "automation" --json url
     def list_pr(self, branch: str, label: str = AUTOMATION_LABEL):
+        self.cmd = COMMAND.copy()
         self.cmd.extend(
             [
                 "pr",
@@ -76,6 +77,7 @@ class GHCLI:
         target_branch: str = "main",
         head_branch: str = "",
     ):
+        self.cmd = COMMAND.copy()
         self.cmd.extend(
             [
                 "pr",
@@ -108,11 +110,13 @@ class GHCLI:
     # Example:
     # gh pr checks --json=name,state https://github.com/kubev2v/mtv-fbc/pull/123
     def list_pr_checks(self, pr_url: str):
+        self.cmd = COMMAND.copy()
         self.cmd.extend(["pr", "checks", "--json=name,state", pr_url])
         return json.loads(self.__exec__())
 
     # Example:
     # gh pr comment $pr_url --body "/retest forklift-fbc-comp-prod-v420-on-pull-request"
     def comment_on_pr(self, pr_url: str, body: str):
+        self.cmd = COMMAND.copy()
         self.cmd.extend(["pr", "comment", pr_url, "--body", body])
         self.__exec__()
