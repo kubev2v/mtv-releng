@@ -62,10 +62,10 @@ async def wait_for_jenkins_jobs(
     data: EmptyDTO, args: Namespace, tg: TaskGroup
 ) -> list[JenkinsJobResultDTO]:
     if not args.jobs:
-        logger.warning(f"No Jenkins jobs were specified")
+        logger.warning("No Jenkins jobs were specified")
         return []
     if not args.iib:
-        logger.warning(f"No MTV IIB Version was specified")
+        logger.warning("No MTV IIB Version was specified")
         return []
 
     regex_pattern = r".*/job/(?P<job_name>mtv-(?P<mtv_version>[\d\.]+)-ocp-(?P<ocp_version>[\d\.]+)-[^/]+)/(?P<build_number>\d+)"
@@ -75,9 +75,7 @@ async def wait_for_jenkins_jobs(
         match = re.search(regex_pattern, job)
 
         if not match:
-            logger.error(
-                f"Couldn't extract info from provided job URL: {args.job}"
-            )
+            logger.error(f"Couldn't extract info from provided job URL: {args.job}")
             continue
         results = match.groupdict()
 
@@ -123,7 +121,7 @@ async def analyze_jobs(
     data: list[JenkinsJobResultDTO], args: Namespace, tg: TaskGroup
 ) -> list[JenkinsJobAnalysisDTO]:
     if not data:
-        logger.warning(f"Previous task didn't return any Jenkins jobs")
+        logger.warning("Previous task didn't return any Jenkins jobs")
         return []
 
     results = []
@@ -146,12 +144,12 @@ async def send_slack_ci_msg(
         return []
 
     if not data:
-        logger.warning(f"Previous task didn't return any Jenkins job results")
+        logger.warning("Previous task didn't return any Jenkins job results")
         return []
 
     if not args.ts:
         logger.warning(
-            f"No timestamp was provided, will send message directly to channel"
+            "No timestamp was provided, will send message directly to channel"
         )
         timestamp = "0"
     else:
@@ -159,8 +157,10 @@ async def send_slack_ci_msg(
 
     ts = SlackBuildMessageTSDTO(iib_version=args.iib, timestamp=timestamp)
 
-    if args.slack_channel:
-        s = Slack(args.slack_channel)
-    else:
-        s = Slack()
-    s.send_ci_status(data, ts)
+    # Send only failed jobs to slack
+    if jobs := [d for d in data if d.job_result.result.lower() == "failure"]:
+        if args.slack_channel:
+            s = Slack(args.slack_channel)
+        else:
+            s = Slack()
+        s.send_ci_status(jobs, ts)
