@@ -75,7 +75,7 @@ async def wait_for_jenkins_jobs(
         match = re.search(regex_pattern, job)
 
         if not match:
-            logger.error(f"Couldn't extract info from provided job URL: {args.job}")
+            logger.error(f"Couldn't extract info from provided job URL: {job}")
             continue
         results = match.groupdict()
 
@@ -127,7 +127,13 @@ async def analyze_jobs(
     results = []
     for job in data:
         ja = JenkinsAnalyzer()
-        results.append(ja.analyze_job(job))
+        try:
+            results.append(ja.analyze_job(job))
+        except Exception as ex:
+            logger.error(f"Failed to analyze job {job.url}: {ex}")
+            results.append(JenkinsJobAnalysisDTO(
+                job_result=job, summary="Analyzer failed", child_jobs=[], html_report_url=job.url
+            ))
 
     return results
 
