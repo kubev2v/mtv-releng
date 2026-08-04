@@ -474,9 +474,35 @@ class TestJenkinsAnalyzer:
             url="http://jenkins/job/mtv-ci/5",
         )
 
-    def test_analyze_non_failure_returns_empty_dto(self, analyzer, success_job):
-        result = analyzer.analyze_job(success_job)
-        assert result.summary == ""
+    def test_analyze_success_job_calls_analyzer(self, analyzer, success_job):
+        api_response = {
+            "summary": "All tests passed",
+            "result_url": "http://results/2",
+            "child_job_analyses": [],
+        }
+        mock_resp = MagicMock()
+        mock_resp.content = json.dumps(api_response).encode()
+        mock_resp.raise_for_status.return_value = None
+
+        with (
+            patch("wrappers.jenkins_analyzer.requests.post", return_value=mock_resp),
+            patch(
+                "wrappers.jenkins_analyzer.RootcozAuth",
+                return_value=MagicMock(bearer_header="Bearer token"),
+            ),
+            patch(
+                "wrappers.jenkins_analyzer.config.get_jenkins_analyzer_url",
+                return_value="http://analyzer",
+            ),
+            patch(
+                "wrappers.jenkins_analyzer.forklift_branch_from_jenkins_job",
+                return_value="release-2.11",
+            ),
+        ):
+            result = analyzer.analyze_job(success_job)
+
+        assert result.summary == "All tests passed"
+        assert result.html_report_url == "http://results/2"
         assert result.child_jobs == []
 
     def test_analyze_failure_calls_requests_post(self, analyzer, failed_job):
