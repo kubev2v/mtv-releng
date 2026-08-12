@@ -26,6 +26,7 @@ storage_offload_clusters:
 # if you want to disable CI for some OCP version, use "none"
 cluster_mappings:
   "5.0": "qemtv-01"
+  "4.23": "none"
   "4.22": "qemtv-03"
   "4.21": "qemtv-04"
   "4.20": "none"
