@@ -25,15 +25,14 @@ storage_offload_clusters:
 # Cluster to OCP version mapping
 # if you want to disable CI for some OCP version, use "none"
 cluster_mappings:
-  "4.22": "qemtv-01"
-  "4.21": "qemtv-02"
-  "4.20": "qemtv-03"
-  "4.19": "qemtv-04"
-  "4.18": "none"
+  "5.0": "qemtv-01"
+  "4.22": "qemtv-03"
+  "4.21": "qemtv-04"
+  "4.20": "none"
 
 # Cluster to OCP version mapping for UI tests
 ui_cluster_mapping:
-  "qemtv-09": "4.22"
+  "qemtv-09": "none"
 
 # Current MTV versions (not used for anything yet)
 versions:
