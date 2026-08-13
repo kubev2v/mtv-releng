@@ -24,6 +24,15 @@ storage_offload_clusters:
 
 # Cluster to OCP version mapping
 # if you want to disable CI for some OCP version, use "none"
+#
+# WORKFLOW: Before widening a release's OCP range (the OCP_VERSIONS high
+# endpoint in a repo's build/release.conf, e.g. v4.22-v5.0 -> v4.22-v5.1),
+# add the new OCP version here first (as "none" if it isn't shipping yet).
+# bundle.py force-includes range endpoints in bundle.ocps even when they
+# aren't listed here, so an unmapped endpoint becomes ocps[0]/ocps[1] and
+# the Jenkins trigger (wrappers/jenkins.py get_*_args) raises ValueError on
+# the absent key, which is uncaught and crashes the pipeline. An explicit
+# "none" is skipped gracefully; an absent key is not.
 cluster_mappings:
   "5.0": "qemtv-01"
   "4.23": "none"
