@@ -130,14 +130,15 @@ class Bundle:
 
                     # Scan all minor versions within this major
                     for minor in range(start_minor, end_minor + 1):
-                        version_str = f"{current_major}.{minor}"
-
                         # Always include endpoint versions, even if not in cluster mappings
                         is_endpoint = (current_major == low_version.major and minor == low_version.minor) or \
                                     (current_major == high_version.major and minor == high_version.minor)
 
-                        if is_endpoint or is_version_available(version_str):
-                            valid_versions.append(f"v{version_str}")
+                        # Check availability using major.minor format (cluster mappings format)
+                        cluster_version = f"{current_major}.{minor}"
+                        if is_endpoint or is_version_available(cluster_version):
+                            # Store as X.Y format for compatibility with existing naming
+                            valid_versions.append(f"v{cluster_version}")
 
                         # Stop if we've reached the high version
                         if current_major == high_version.major and minor >= high_version.minor:
@@ -146,7 +147,7 @@ class Bundle:
                     current_major += 1
 
                 # Sort by semantic version to ensure proper ordering
-                self.ocps = sorted(valid_versions, key=lambda x: Version.parse(x.lstrip("v")))
+                self.ocps = sorted(valid_versions, key=lambda x: Version.parse(x.lstrip("v"), optional_minor_and_patch=True))
             except Exception:
                 raise RuntimeError(
                     f"Couldn't parse {ocps} in individual versions"

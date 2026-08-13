@@ -563,9 +563,24 @@ async def trigger_jenkins_jobs(
                 continue
             iib_short = iib.url.split("/")[-1]
             iib_version = str(fbc_repo.current_iib_version)
-            ocps = fbc_repo.for_bundle.ocps
-            ocps.sort()
-            ocps.reverse()
+            # Order OCP versions high -> low. Sort semantically (not
+            # lexically): a plain string sort orders "v5.10" before "v5.9",
+            # which would pick the wrong OCP once a minor reaches double
+            # digits. Copy into a new list so we don't mutate the bundle's
+            # canonical (ascending) ocps list, which other tasks rely on.
+            ocps = sorted(
+                fbc_repo.for_bundle.ocps,
+                key=lambda x: Version.parse(
+                    x.lstrip("v"), optional_minor_and_patch=True
+                ),
+                reverse=True,
+            )
+            # NOTE: This block assumes a release always supports at least two
+            # OCP versions (a range like v4.22-v5.0), since ocps[1] is used
+            # below for the non-gate and upgrade jobs. If a release ever ships
+            # a single OCP version (e.g. OCP_VERSIONS=v5.0), ocps[1] will raise
+            # IndexError and these accesses must be guarded (e.g. fall back to
+            # ocps[0] / skip the second job when len(ocps) == 1).
             version = str(fbc_repo.for_bundle.version)
 
             job = await jm.trigger_release_gate(
