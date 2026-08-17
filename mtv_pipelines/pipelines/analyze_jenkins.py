@@ -1,7 +1,7 @@
 import logging
 import re
 from argparse import Namespace
-from asyncio import TaskGroup
+from asyncio import TaskGroup, to_thread
 
 import requests
 from config import config
@@ -58,9 +58,9 @@ def arg_parse(arg_parser):
 
 
 @task
-async def wait_for_jenkins_jobs(
+async def wait_and_analyze_jenkins_jobs(
     data: EmptyDTO, args: Namespace, tg: TaskGroup
-) -> list[JenkinsJobResultDTO]:
+) -> list[JenkinsJobAnalysisDTO]:
     if not args.jobs:
         logger.warning("No Jenkins jobs were specified")
         return []
@@ -92,16 +92,29 @@ async def wait_for_jenkins_jobs(
         )
         jobs.append(job)
 
-    async def wait(job: JenkinsJobDTO) -> JenkinsJobResultDTO:
+    async def wait(job: JenkinsJobDTO) -> JenkinsJobAnalysisDTO:
         result = await jm.wait_for_completion(job.job_name, job.build_number)
-        url = result.get("url", "")
-        status = result.get("result", "")
-        return JenkinsJobResultDTO(job=job, result=status, url=url)
+        job_result = JenkinsJobResultDTO(
+            job=job,
+            result=result.get("result", ""),
+            url=result.get("url", ""),
+        )
+        try:
+            return await to_thread(ja.analyze_job, job_result)
+        except Exception as ex:
+            logger.error(f"Failed to analyze job {job_result.url}: {ex}")
+            return JenkinsJobAnalysisDTO(
+                job_result=job_result,
+                summary="Analyzer failed",
+                child_jobs=[],
+                html_report_url=job_result.url,
+            )
 
     tasks = []
     results = []
     try:
         jm = JenkinsManager(config.get_jenkins_url())
+        ja = JenkinsAnalyzer()
         for job in jobs:
             tasks.append(tg.create_task(wait(job)))
         for task in tasks:
@@ -116,30 +129,7 @@ async def wait_for_jenkins_jobs(
 
 
 @task
-@depends_on(wait_for_jenkins_jobs)
-async def analyze_jobs(
-    data: list[JenkinsJobResultDTO], args: Namespace, tg: TaskGroup
-) -> list[JenkinsJobAnalysisDTO]:
-    if not data:
-        logger.warning("Previous task didn't return any Jenkins jobs")
-        return []
-
-    results = []
-    for job in data:
-        ja = JenkinsAnalyzer()
-        try:
-            results.append(ja.analyze_job(job))
-        except Exception as ex:
-            logger.error(f"Failed to analyze job {job.url}: {ex}")
-            results.append(JenkinsJobAnalysisDTO(
-                job_result=job, summary="Analyzer failed", child_jobs=[], html_report_url=job.url
-            ))
-
-    return results
-
-
-@task
-@depends_on(analyze_jobs)
+@depends_on(wait_and_analyze_jenkins_jobs)
 async def send_slack_ci_msg(
     data: list[JenkinsJobAnalysisDTO], args: Namespace, tg: TaskGroup
 ):
