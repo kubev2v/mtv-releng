@@ -528,8 +528,9 @@ function ensure_oc_login {
     local cluster_url="$1"
     local token_var="${2:-OCP_TOKEN}"
 
-    # 1. Reuse an existing session for this exact cluster
-    if [[ "$(oc whoami --show-server 2>/dev/null)" == "$cluster_url" ]]; then
+    # 1. Reuse an existing session for this exact cluster 
+    if [[ "$(oc whoami --show-server 2>/dev/null)" == "$cluster_url" ]] \
+        && oc whoami >/dev/null 2>&1; then
         return 0
     fi
 

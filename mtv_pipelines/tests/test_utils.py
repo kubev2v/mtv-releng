@@ -130,11 +130,12 @@ class TestCollectJiraKeys:
         ]
         assert utils.collect_jira_keys(diffs) == ["MTV-1", "MTV-2", "MTV-3"]
 
-    def test_deduplicates_case_insensitively_preserving_order(self):
+    def test_deduplicates_case_insensitively_and_sorts(self):
         diffs = [
-            self._diff("forklift", ["MTV-1"], ["mtv-1", "MTV-2"]),
-            self._diff("console", ["MTV-2"]),
+            self._diff("forklift", ["MTV-2"], ["mtv-2", "MTV-1"]),
+            self._diff("console", ["MTV-1"]),
         ]
+        # Case-insensitive dedup, returned in deterministic sorted order.
         assert utils.collect_jira_keys(diffs) == ["MTV-1", "MTV-2"]
 
 

@@ -596,7 +596,9 @@ class TestJiraFixedInBuild:
         ):
             yield JiraFixedInBuild()
 
-    def test_notify_build_posts_expected_payload_and_header(self, jira):
+    def test_notify_build_returns_true_on_webhook_acceptance(self, jira):
+        # A 2xx means Atlassian *accepted* the request (acceptance only — it
+        # returns 200 even for a bad token), so notify_build reports True.
         mock_resp = MagicMock()
         mock_resp.raise_for_status.return_value = None
         with patch(

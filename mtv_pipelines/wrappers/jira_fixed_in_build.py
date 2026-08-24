@@ -19,10 +19,9 @@ class JiraFixedInBuild:
         self.token = JiraFixedInBuildAuth().token
 
     def notify_build(self, issue_keys: list[str], build_version: str) -> bool:
-        """Tag *issue_keys* with *build_version*. Returns True on success.
+        """Send *issue_keys* + *build_version* to the fixed-in-build webhook.
 
-        A notification failure is logged and swallowed so it can never fail
-        the build pipeline.
+        Returns True if Atlassian Automation *accepted* the request (HTTP 2xx).
         """
         if not issue_keys:
             logger.info(f"No Jira issues to notify for build {build_version}")
@@ -49,6 +48,7 @@ class JiraFixedInBuild:
             return False
 
         logger.info(
-            f"Notified Jira fixed-in-build: {build_version} -> {issue_keys}"
+            f"Jira fixed-in-build webhook accepted request for "
+            f"{build_version}: {issue_keys}"
         )
         return True

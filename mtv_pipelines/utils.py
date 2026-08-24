@@ -147,16 +147,11 @@ def extract_jira_keys(text: str) -> list[str]:
 
 def collect_jira_keys(diffs: list["RepoDiffDTO"]) -> list[str]:
     """Flatten and de-duplicate all Jira keys across a build's commit diffs."""
-    seen: set[str] = set()
-    keys: list[str] = []
+    keys: set[str] = set()
     for change in diffs:
         for commit in change.diff:
-            for issue in commit.issues:
-                issue_upper = issue.upper()
-                if issue_upper not in seen:
-                    seen.add(issue_upper)
-                    keys.append(issue_upper)
-    return keys
+            keys.update(issue.upper() for issue in commit.issues)
+    return sorted(keys)
 
 
 def forklift_branch_from_jenkins_job(job: "JenkinsJobDTO") -> str:
