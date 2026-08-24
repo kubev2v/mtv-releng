@@ -824,7 +824,13 @@ async def analyze_jobs(
         # if "offload" in job.job.job_name:
         #     continue
         ja = JenkinsAnalyzer()
-        results.append(ja.analyze_job(job))
+        # Analysis is best-effort: a failing analyzer (e.g. a transient 500)
+        # must not abort the whole pipeline or drop analysis for other jobs.
+        try:
+            results.append(ja.analyze_job(job))
+        except requests.RequestException as ex:
+            logger.error(f"Analyzer failed for {job.url}, skipping analysis for this job")
+            logger.exception(ex)
 
     return results
 
