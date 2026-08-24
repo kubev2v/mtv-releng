@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from models.dto import JenkinsJobDTO
+from models.dto import CommitDTO, JenkinsJobDTO, RepoDiffDTO
 from semver import Version
 
 import utils
@@ -104,6 +104,39 @@ class TestExtractJiraKeys:
     def test_deduplicates_keys(self):
         text = "MTV-1234 first mention and MTV-1234 again"
         assert utils.extract_jira_keys(text) == ["MTV-1234"]
+
+
+class TestCollectJiraKeys:
+    def _diff(self, repo: str, *issue_lists: list[str]) -> RepoDiffDTO:
+        commits = [
+            CommitDTO(
+                sha=f"sha{i}",
+                msg="msg",
+                date="",
+                author="",
+                issues=issues,
+            )
+            for i, issues in enumerate(issue_lists)
+        ]
+        return RepoDiffDTO(repo=repo, version="2.12.0", diff=commits)
+
+    def test_empty_diffs_returns_empty(self):
+        assert utils.collect_jira_keys([]) == []
+
+    def test_flattens_across_commits_and_repos(self):
+        diffs = [
+            self._diff("forklift", ["MTV-1"], ["MTV-2"]),
+            self._diff("console", ["MTV-3"]),
+        ]
+        assert utils.collect_jira_keys(diffs) == ["MTV-1", "MTV-2", "MTV-3"]
+
+    def test_deduplicates_case_insensitively_and_sorts(self):
+        diffs = [
+            self._diff("forklift", ["MTV-2"], ["mtv-2", "MTV-1"]),
+            self._diff("console", ["MTV-1"]),
+        ]
+        # Case-insensitive dedup, returned in deterministic sorted order.
+        assert utils.collect_jira_keys(diffs) == ["MTV-1", "MTV-2"]
 
 
 class TestForkliftBranchFromJenkinsJob:

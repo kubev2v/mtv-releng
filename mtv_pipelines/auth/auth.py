@@ -11,6 +11,7 @@ REGISTRY_STAGE_TOKEN = "REGISTRY_STAGE_TOKEN"
 STORAGE_OFFLOAD_CLUSTER_EDGE112 = "STORAGE_OFFLOAD_CLUSTER_EDGE112"
 GITHUB_TOKEN = "GH_TOKEN"
 ROOTCOZ_TOKEN = "ROOTCOZ"
+JIRA_FIXED_IN_BUILD_TOKEN = "JIRA_FIXED_IN_BUILD_TOKEN"
 
 
 @dataclass
@@ -50,3 +51,8 @@ class RootcozAuth:
     @property
     def bearer_header(self) -> str:
         return f"Bearer {self.token}"
+
+
+class JiraFixedInBuildAuth:
+    def __init__(self):
+        self.token = Auth(JIRA_FIXED_IN_BUILD_TOKEN).value

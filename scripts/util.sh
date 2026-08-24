@@ -517,6 +517,49 @@ function rm_temp_dir {
   fi
 }
 
+# Ensure we're logged into the given OpenShift cluster before running `oc`.
+# Preference order:
+#   1. Reuse an existing session already pointed at this cluster
+#   2. Non-interactive login with a token from <token_var> — the exported env
+#      var if present, otherwise sourced from scripts/auth.sh (standalone runs)
+#   3. Interactive `oc login --web` as a last resort
+# Usage: ensure_oc_login <cluster_url> [token_var_name]
+function ensure_oc_login {
+    local cluster_url="$1"
+    local token_var="${2:-OCP_TOKEN}"
+
+    # 1. Reuse an existing session for this exact cluster 
+    if [[ "$(oc whoami --show-server 2>/dev/null)" == "$cluster_url" ]] \
+        && oc whoami >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # 2. Token login. Prefer an already-exported env var (auth.sh sourced once
+    #    up front); fall back to sourcing auth.sh here for standalone runs.
+    local token="${!token_var:-}"
+    if [[ -z "$token" && -f scripts/auth.sh ]]; then
+        source scripts/auth.sh
+        token="${!token_var:-}"
+    fi
+
+    if [[ -n "$token" ]]; then
+        log_info "Logging into $cluster_url with \$$token_var"
+        if oc login --token="$token" --server="$cluster_url" >/dev/null 2>&1; then
+            return 0
+        fi
+        log_warning "Token login to $cluster_url failed; falling back to interactive login"
+    fi
+
+    # 3. Interactive fallback — only viable with a terminal. In non-interactive
+    #    contexts (cron, the automatic_iib pipeline) `oc login --web` would hang
+    #    forever waiting on a browser, so fail fast with a clear message instead.
+    if [[ ! -t 0 ]]; then
+        log_error "Not logged into $cluster_url and no usable \$$token_var; cannot prompt for interactive login in a non-interactive shell"
+        exit 1
+    fi
+    oc login --web "$cluster_url"
+}
+
 # Function to validate required tools
 function validate_tools {
     local missing_tools=()

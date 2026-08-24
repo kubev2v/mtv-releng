@@ -1,6 +1,7 @@
 __pycache__
 test/
 .env
+scripts/auth.sh
 logs/
 .venv/
 data/

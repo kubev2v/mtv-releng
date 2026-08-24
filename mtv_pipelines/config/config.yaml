@@ -122,6 +122,10 @@ templates_dir: "project/templates"
 # Jira
 jira_issues: "https://redhat.atlassian.net/"
 
+# Jira "fixed-in-build" automation webhook (endpoint only; the token lives in the
+# JIRA_FIXED_IN_BUILD_TOKEN env var and is sent as the X-Automation-Webhook-Token header)
+jira_fixed_in_build_webhook_url: "https://api-private.atlassian.com/automation/webhooks/jira/a/ec74d716-af36-4b3c-950f-f79213d08f71/01a02036-1874-7319-849b-ad618e6a8b19"
+
 # Root cert path inside the container
 root_cert_path: "/app/root.pem"
 

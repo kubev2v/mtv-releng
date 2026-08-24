@@ -31,10 +31,11 @@ from tasks.prepare_slack_build import prepare_slack_build
 from tasks.process_fbc_repo import process_fbc_repo
 from tasks.trigger_upgrade_jobs import trigger_upgrade_jobs
 from tasks.wait_for_pr import wait_for_pr
-from utils import iib_short_for_target_ocp, replace_for_quay
+from utils import collect_jira_keys, iib_short_for_target_ocp, replace_for_quay
 from wrappers.gh_cli import GHCLI
 from wrappers.jenkins import JenkinsManager
 from wrappers.jenkins_analyzer import JenkinsAnalyzer
+from wrappers.jira_fixed_in_build import JiraFixedInBuild
 from wrappers.skopeo import Skopeo
 from wrappers.slack import Slack
 
@@ -67,6 +68,12 @@ def arg_parse(arg_parser):
         "-s",
         "--skip-slack",
         help="Tells the pipeline to skip sending the slack message",
+        required=False,
+        action="store_true",
+    )
+    arg_parser.add_argument(
+        "--skip-fixed-in-build",
+        help="Tells the pipeline to skip notifying the Jira fixed-in-build webhook",
         required=False,
         action="store_true",
     )
@@ -544,6 +551,58 @@ async def send_slack_build_msg(
 
 
 @task
+@depends_on(extract_commit_diff, wait_for_prs)
+async def notify_jira_fixed_in_build(
+    data: CollectorDTO, args: Namespace, tg: TaskGroup
+) -> EmptyDTO:
+    if args.skip_fixed_in_build:
+        logger.info(
+            "Skipping Jira fixed-in-build as --skip-fixed-in-build arg was provided"
+        )
+        return EmptyDTO()
+
+    if not data:
+        logger.warning(f"Previous task didn't return any data")
+        return EmptyDTO()
+
+    if not data.task_outputs.get(extract_commit_diff.name):
+        logger.warning(f"Previous task didn't return any commit diff")
+        return EmptyDTO()
+
+    if not data.task_outputs.get(wait_for_prs.name):
+        logger.warning(f"Previous task didn't return any FBC repos")
+        return EmptyDTO()
+
+    diffs = data.task_outputs[extract_commit_diff.name]
+
+    # Match each build to only its own X.Y stream's Jira keys so an issue fixed
+    # in one version isn't stamped fixed-in-build against an unrelated version's
+    # IIB when a run processes multiple versions (e.g. without --process-version).
+    notifications = []
+    for fbc_repo in data.task_outputs[wait_for_prs.name]:
+        version_xy = ".".join(str(fbc_repo.for_bundle.version).split(".")[:2])
+        keys = collect_jira_keys(
+            [d for d in diffs if ".".join(d.version.split(".")[:2]) == version_xy]
+        )
+        if keys:
+            notifications.append((str(fbc_repo.current_iib_version), keys))
+
+    if not notifications:
+        logger.info("No Jira issues to notify")
+        return EmptyDTO()
+
+    try:
+        jira = JiraFixedInBuild()
+    except (RuntimeError, ValueError) as error:
+        logger.error(f"Cannot initialize Jira fixed-in-build notification: {error}")
+        return EmptyDTO()
+
+    for iib_version, keys in notifications:
+        jira.notify_build(keys, iib_version)
+    return EmptyDTO()
+
+
+@task
 @depends_on(wait_for_prs)
 async def trigger_jenkins_jobs(
     data: list[FBCRepo], args: Namespace, tg: TaskGroup
@@ -765,7 +824,13 @@ async def analyze_jobs(
         # if "offload" in job.job.job_name:
         #     continue
         ja = JenkinsAnalyzer()
-        results.append(ja.analyze_job(job))
+        # Analysis is best-effort: a failing analyzer (e.g. a transient 500)
+        # must not abort the whole pipeline or drop analysis for other jobs.
+        try:
+            results.append(ja.analyze_job(job))
+        except requests.RequestException as ex:
+            logger.error(f"Analyzer failed for {job.url}, skipping analysis for this job")
+            logger.exception(ex)
 
     return results
 

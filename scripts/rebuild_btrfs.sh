@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source scripts/util.sh
 
 cluster="https://api.stone-prod-p02.hjvn.p1.openshiftapps.com:6443"
 version=$1
@@ -11,9 +12,7 @@ if [[ -z $1 ]]; then
   exit 0
 fi
 
-if ! [[ $(oc status | grep -wo $cluster) ]]; then
-  oc login --web $cluster
-fi
+ensure_oc_login "$cluster" KONFLUX_BTRFS_TOKEN
 
 oc project rh-mtv-btrfs-tenant
 oc annotate components/virt-v2v-int-$version build.appstudio.openshift.io/request=trigger-pac-build

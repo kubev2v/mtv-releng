@@ -13,6 +13,7 @@ from wrappers.git import Git
 from wrappers.gh_cli import GHCLI
 from wrappers.jenkins import JenkinsManager
 from wrappers.jenkins_analyzer import JenkinsAnalyzer
+from wrappers.jira_fixed_in_build import JiraFixedInBuild
 from wrappers.skopeo import ImageNotFoundError, Skopeo
 from wrappers.slack import Slack, SlackBuilder
 
@@ -573,6 +574,73 @@ class TestJenkinsAnalyzer:
         }
         result = analyzer._process_data(data, failed_job)
         assert result.child_jobs == []
+
+
+# ---------------------------------------------------------------------------
+# JiraFixedInBuild
+# ---------------------------------------------------------------------------
+
+
+class TestJiraFixedInBuild:
+    @pytest.fixture
+    def jira(self):
+        with (
+            patch(
+                "wrappers.jira_fixed_in_build.JiraFixedInBuildAuth",
+                return_value=MagicMock(token="secret-token"),
+            ),
+            patch(
+                "wrappers.jira_fixed_in_build.config.get_jira_fixed_in_build_webhook_url",
+                return_value="https://api-private.atlassian.com/hook",
+            ),
+        ):
+            yield JiraFixedInBuild()
+
+    def test_notify_build_returns_true_on_webhook_acceptance(self, jira):
+        # A 2xx means Atlassian *accepted* the request (acceptance only — it
+        # returns 200 even for a bad token), so notify_build reports True.
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        with patch(
+            "wrappers.jira_fixed_in_build.requests.post", return_value=mock_resp
+        ) as m_post:
+            result = jira.notify_build(["MTV-1", "MTV-2"], "2.12.6-3")
+
+        assert result is True
+        m_post.assert_called_once()
+        kwargs = m_post.call_args.kwargs
+        assert kwargs["json"] == {
+            "issues": ["MTV-1", "MTV-2"],
+            "data": {"buildVersion": "2.12.6-3"},
+        }
+        assert kwargs["headers"]["X-Automation-Webhook-Token"] == "secret-token"
+
+    def test_notify_build_skips_when_no_issues(self, jira):
+        with patch("wrappers.jira_fixed_in_build.requests.post") as m_post:
+            result = jira.notify_build([], "2.12.6-3")
+        assert result is False
+        m_post.assert_not_called()
+
+    def test_notify_build_swallows_request_errors(self, jira):
+        import requests
+
+        with patch(
+            "wrappers.jira_fixed_in_build.requests.post",
+            side_effect=requests.ConnectionError("boom"),
+        ):
+            result = jira.notify_build(["MTV-1"], "2.12.6-3")
+        assert result is False
+
+    def test_notify_build_swallows_http_errors(self, jira):
+        import requests
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = requests.HTTPError("500")
+        with patch(
+            "wrappers.jira_fixed_in_build.requests.post", return_value=mock_resp
+        ):
+            result = jira.notify_build(["MTV-1"], "2.12.6-3")
+        assert result is False
 
 
 # ---------------------------------------------------------------------------

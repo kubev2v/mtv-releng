@@ -115,6 +115,10 @@ def get_jira_url() -> str:
     return _parse_simple("jira_issues")
 
 
+def get_jira_fixed_in_build_webhook_url() -> str:
+    return _parse_simple("jira_fixed_in_build_webhook_url")
+
+
 def get_commit_character_limit() -> int:
     return _parse_simple("commit_character_limit")
 

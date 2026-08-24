@@ -14,7 +14,7 @@ from models.iib import IIB
 from semver import Version
 
 if TYPE_CHECKING:
-    from models.dto import JenkinsJobDTO
+    from models.dto import JenkinsJobDTO, RepoDiffDTO
 
 PRETTY_PRINT = "  "
 
@@ -143,6 +143,15 @@ def extract_jira_keys(text: str) -> list[str]:
             keys.append(key.upper())
 
     return list(set(keys))
+
+
+def collect_jira_keys(diffs: list["RepoDiffDTO"]) -> list[str]:
+    """Flatten and de-duplicate all Jira keys across a build's commit diffs."""
+    keys: set[str] = set()
+    for change in diffs:
+        for commit in change.diff:
+            keys.update(issue.upper() for issue in commit.issues)
+    return sorted(keys)
 
 
 def forklift_branch_from_jenkins_job(job: "JenkinsJobDTO") -> str:
