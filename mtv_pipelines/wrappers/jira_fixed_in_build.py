@@ -12,6 +12,17 @@ class JiraFixedInBuild:
 
     The webhook endpoint is public config; the ``X-Automation-Webhook-Token``
     is the secret and comes from the JIRA_FIXED_IN_BUILD_TOKEN env var.
+
+    Deferred refactor (PR #48 review): when a *second* Jira Automation
+    integration lands, extract a ``JiraAutomationWebhook`` base owning the
+    invariant POST/header/raise_for_status/best-effort plumbing, with this
+    class as a thin subclass supplying its own URL + token and payload shape.
+    Not generalized to a single "JiraManager" because each Automation rule has
+    its own webhook URL and its own X-Automation-Webhook-Token secret (there is
+    no blanket credential for triggering automations), so credentials stay
+    per-automation. A shared manager would only fit the Jira REST API, which we
+    don't use here. Left as one class until automation #2 exists so the
+    abstraction boundary is drawn against a real second payload, not a guess.
     """
 
     def __init__(self):
