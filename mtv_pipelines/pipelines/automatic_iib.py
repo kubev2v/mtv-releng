@@ -298,8 +298,8 @@ async def wait_for_prs(
         return []
 
     # wait for konflux to schedule the checks
-    logger.debug(f"Waiting 10s for Konflux to trigger")
-    await sleep(10)
+    logger.debug(f"Waiting 2m for Konflux to trigger")
+    await sleep(120)
 
     tasks = []
     for fbc_repo in data:

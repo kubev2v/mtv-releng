@@ -98,7 +98,7 @@ commit_character_limit: 50
 fbc_pr_max_retries: 3
 
 # How long to wait for before requesting data from the FBC PR
-fbc_pr_refresh_seconds: 120
+fbc_pr_refresh_seconds: 60
 
 # Slack API
 slack_api: "https://slack.com/api/"
