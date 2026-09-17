@@ -159,7 +159,7 @@ class JenkinsManager:
             raise ValueError(
                 f"OCP {ocp_version} not in cluster mappings {cluster_mappings}"
             )
-        if cluster.lower() == "none":
+        if cluster.lower() in ("none", "nocluster"):
             logger.warning(
                 f"OCP {ocp_version} disabled in cluster mappings {cluster_mappings}"
             )
@@ -187,7 +187,7 @@ class JenkinsManager:
             raise ValueError(
                 f"OCP {ocp_version} not in cluster mappings {cluster_mappings}"
             )
-        if cluster.lower() == "none":
+        if cluster.lower() in ("none", "nocluster"):
             logger.warning(
                 f"OCP {ocp_version} disabled in cluster mappings {cluster_mappings}"
             )
@@ -216,7 +216,7 @@ class JenkinsManager:
             raise ValueError(
                 f"OCP {ocp_version} not in cluster mappings {cluster_mappings}"
             )
-        if cluster.lower() == "none":
+        if cluster.lower() in ("none", "nocluster"):
             logger.warning(
                 f"OCP {ocp_version} disabled in cluster mappings {cluster_mappings}"
             )

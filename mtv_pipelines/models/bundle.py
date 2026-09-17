@@ -136,7 +136,9 @@ class Bundle:
 
                         # Check availability using major.minor format (cluster mappings format)
                         cluster_version = f"{current_major}.{minor}"
-                        if is_endpoint or is_version_available(cluster_version):
+                        # Within the high major the range is exact and contiguous;
+                        # below it, trust cluster mappings to find real minors.
+                        if current_major == high_version.major or is_endpoint or is_version_available(cluster_version):
                             # Store as X.Y format for compatibility with existing naming
                             valid_versions.append(f"v{cluster_version}")
 
