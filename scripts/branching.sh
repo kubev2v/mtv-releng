@@ -25,6 +25,13 @@ fork_forklift_must_gather_url="git@github.com:solenoci/forklift-must-gather.git"
 # If the script should delete the working directory at the end
 cleanup="true"
 
+# Portable in-place sed (GNU and BSD/macOS differ on -i)
+if sed --version >/dev/null 2>&1; then
+  sedi() { sed -i "$@"; }
+else
+  sedi() { sed -i '' "$@"; }
+fi
+
 # Modify release.conf file with user input values
 release_conf_forklift() {
   cat <<EOF >build/release.conf
@@ -35,7 +42,7 @@ MTV_VERSION=$version
 RELEASE=$release
 
 # This setting must mirror the Y stream version specified above, e.g. if RELEASE == v2.10 then CPE == 2.10 (without the "v")
-CPE=2.11
+CPE=${version%.*}
 
 # Operator channel where the version will be deployed, e.g. dev-preview, release-v2.9 ...
 CHANNEL=$channel
@@ -61,7 +68,7 @@ RVERSION=$version
 RELEASE=$release
 
 # This setting must mirror the Y stream version specified above, e.g. if RELEASE == v2.10 then CPE == 2.10 (without the "v")
-CPE=2.11
+CPE=${version%.*}
 
 # Operator channel where the version will be deployed, e.g. dev-preview, release-v2.9 ...
 CHANNEL=$channel
@@ -84,7 +91,7 @@ VERSION=$version
 RELEASE=$release
 
 # This setting must mirror the Y stream version specified above, e.g. if RELEASE == v2.10 then CPE == 2.10 (without the "v")
-CPE=2.11
+CPE=${version%.*}
 
 # Operator channel where the version will be deployed, e.g. dev-preview, release-v2.9 ...
 CHANNEL=$channel
@@ -122,13 +129,13 @@ process_repo() {
   done
 
   # The "pipelinesascode.tekton.dev/on-cel-expression" annotation in .tekton/ files should be adjusted to specify and filter by the right branch name, example: main -> release-2.9
-  sed -i -e "s/\"main\"/\"release-${version%.*}\"/g" .tekton/*
+  sedi -e "s/\"main\"/\"release-${version%.*}\"/g" .tekton/*
 
   # The appstudio.openshift.io/application and appstudio.openshift.io/component labels in .tekton/ files must be adjusted to specify the right Application and Component respectively. Failing to do this will cause builds of the pipeline to be associated with the wrong application or component. example: forklift-operator-dev-preview -> forklift-operator-2-9
-  sed -i -e "s/dev-preview/$version_name/g" .tekton/*
+  sedi -e "s/dev-preview/$version_name/g" .tekton/*
 
   if [[ "$release_conf" == "forklift" ]]; then
-    sed -i -e "s/dev-preview/$version_name/g" build/forklift-operator-bundle/images.conf
+    sedi -e "s/dev-preview/$version_name/g" build/forklift-operator-bundle/images.conf
     git add build/forklift-operator-bundle/images.conf
   fi
   git add .tekton/ build/release.conf
@@ -240,26 +247,29 @@ git clone $konflux_releng --depth=1
 cd konflux-release-data
 git checkout -b mtv_add_stream
 
-# Add new version stream
-cat <<EOF >>tenants-config/cluster/stone-prd-rh01/tenants/rh-mtv-1-tenant/streams.yaml
----
-apiVersion: projctl.konflux.dev/v1beta1
-kind: ProjectDevelopmentStream
-metadata:
-  name: forklift-operator-pds-$version_name
-  namespace: rh-mtv-1-tenant
-spec:
-  project: forklift-operator-project
-  template:
-    name: forklift-operator-template
-    values:
-      - name: version
-        value: "${version%.*}"
-      - name: versionName
-        value: "$version_name"
-      - name: revision
-        value: "release-${version%.*}"
-EOF
+# Prod tenant (rh-mtv-1) now uses one rendered manifest per version under
+# operator/streams/, snapshotted from main (operator/dev-preview.yaml) so it picks up
+# any component changes since the last release. Transform dev-preview -> this version,
+# retarget components to the release branch, add the configure-pac-no-mr annotation
+# (Components only) release streams carry, then register it. Old template left as-is.
+prod_operator_dir="tenants-config/cluster/stone-prd-rh01/tenants/rh-mtv-1-tenant/operator"
+cp "$prod_operator_dir/dev-preview.yaml" "$prod_operator_dir/streams/$version_name.yaml"
+sedi -e "s/dev-preview/$version_name/g" \
+     -e "s/revision: \"main\"/revision: \"release-${version%.*}\"/g" \
+     -e "s#\(build.appstudio.openshift.io/pipeline: .*\)#\1\\"$'\n'"    build.appstudio.openshift.io/request: configure-pac-no-mr#" \
+     "$prod_operator_dir/streams/$version_name.yaml"
+echo "  - $version_name.yaml" >>"$prod_operator_dir/streams/kustomization.yaml"
+
+# Standalone *-bundle / *-api ReleasePlans + ReleasePlanAdmissions are manual one-offs.
+# To automate later:
+#   prev=<previous version_name, e.g. 2-12>
+#   for flavour in bundle api; do
+#     # rp lives in the tenant dir, rpa in config/.../ReleasePlanAdmission/rh-mtv-1
+#     cp forklift-operator-rp-prod-$prev-$flavour.yaml   forklift-operator-rp-prod-$version_name-$flavour.yaml
+#     cp forklift-operator-rpa-prod-$prev-$flavour.yaml  forklift-operator-rpa-prod-$version_name-$flavour.yaml
+#     sedi -e "s/$prev/$version_name/g" forklift-operator-r*-prod-$version_name-$flavour.yaml
+#     echo "  - forklift-operator-rp-prod-$version_name-$flavour.yaml" >> <tenant>/kustomization.yaml
+#   done
 
 cat <<EOF >>tenants-config/cluster/stone-prod-p02/tenants/rh-mtv-btrfs-tenant/streams.yaml
 ---
@@ -286,26 +296,26 @@ cd config/stone-prd-rh01.pg1f.p1/product/ReleasePlanAdmission/rh-mtv-1
 for i in forklift-operator-rpa-stage-dev-preview-*; do
   cp "$i" "$(echo $i | sed "s/dev-preview/$version_name/")"
 done
-sed -i -e "s/dev-preview/$version_name/g" forklift-operator-rpa-stage-$version_name-*
-sed -i -e "s/mtv-candidate/$registry/g" forklift-operator-rpa-stage-$version_name-*
+sedi -e "s/dev-preview/$version_name/g" forklift-operator-rpa-stage-$version_name-*
+sedi -e "s/mtv-candidate/$registry/g" forklift-operator-rpa-stage-$version_name-*
 
 # Update registry and replace dev-preview for version
 for i in forklift-operator-rpa-prod-dev-preview-*; do
   cp "$i" "$(echo $i | sed "s/dev-preview/$version_name/")"
 done
-sed -i -e "s/dev-preview/$version_name/g" forklift-operator-rpa-prod-$version_name-*
-sed -i -e "s/mtv-candidate/$registry/g" forklift-operator-rpa-prod-$version_name-*
+sedi -e "s/dev-preview/$version_name/g" forklift-operator-rpa-prod-$version_name-*
+sedi -e "s/mtv-candidate/$registry/g" forklift-operator-rpa-prod-$version_name-*
 
 # Update product_version in stage RPAs
 for i in forklift-operator-rpa-stage-$version_name-*; do
-  sed "/product_version/s/      product_version: \"[0-9].[0.9]\"/      product_version: \"${version%.*}\"/" $i >$i-replace
+  sed "/product_version/s/      product_version: \"[0-9][0-9]*\.[0-9][0-9]*\"/      product_version: \"${version%.*}\"/" $i >$i-replace
   rm $i
   mv $i-replace $i
 done
 
 # Update product_version in prod RPAs
 for i in forklift-operator-rpa-prod-$version_name-*; do
-  sed "/product_version/s/      product_version: \"[0-9].[0.9]\"/      product_version: \"${version%.*}\"/" $i >$i-replace
+  sed "/product_version/s/      product_version: \"[0-9][0-9]*\.[0-9][0-9]*\"/      product_version: \"${version%.*}\"/" $i >$i-replace
   rm $i
   mv $i-replace $i
 done
@@ -320,26 +330,26 @@ cd config/stone-prod-p02.hjvn.p1/product/ReleasePlanAdmission/rh-mtv-btrfs
 for i in forklift-operator-int-rpa-stage-dev-preview-*; do
   cp "$i" "$(echo $i | sed "s/dev-preview/$version_name/")"
 done
-sed -i -e "s/dev-preview/$version_name/g" forklift-operator-int-rpa-stage-$version_name-*
-sed -i -e "s/mtv-candidate/$registry/g" forklift-operator-int-rpa-stage-$version_name-*
+sedi -e "s/dev-preview/$version_name/g" forklift-operator-int-rpa-stage-$version_name-*
+sedi -e "s/mtv-candidate/$registry/g" forklift-operator-int-rpa-stage-$version_name-*
 
 # Update registry and replace dev-preview for version
 for i in forklift-operator-int-rpa-prod-dev-preview-*; do
   cp "$i" "$(echo $i | sed "s/dev-preview/$version_name/")"
 done
-sed -i -e "s/dev-preview/$version_name/g" forklift-operator-int-rpa-prod-$version_name-*
-sed -i -e "s/mtv-candidate/$registry/g" forklift-operator-int-rpa-prod-$version_name-*
+sedi -e "s/dev-preview/$version_name/g" forklift-operator-int-rpa-prod-$version_name-*
+sedi -e "s/mtv-candidate/$registry/g" forklift-operator-int-rpa-prod-$version_name-*
 
 # Update product_version in stage RPAs
 for i in forklift-operator-int-rpa-stage-$version_name-*; do
-  sed "/product_version/s/      product_version: \"[0-9].[0.9]\"/      product_version: \"${version%.*}\"/" $i >$i-replace
+  sed "/product_version/s/      product_version: \"[0-9][0-9]*\.[0-9][0-9]*\"/      product_version: \"${version%.*}\"/" $i >$i-replace
   rm $i
   mv $i-replace $i
 done
 
 # Update product_version in prod RPAs
 for i in forklift-operator-int-rpa-prod-$version_name-*; do
-  sed "/product_version/s/      product_version: \"[0-9].[0.9]\"/      product_version: \"${version%.*}\"/" $i >$i-replace
+  sed "/product_version/s/      product_version: \"[0-9][0-9]*\.[0-9][0-9]*\"/      product_version: \"${version%.*}\"/" $i >$i-replace
   rm $i
   mv $i-replace $i
 done

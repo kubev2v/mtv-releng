@@ -56,8 +56,16 @@ fi
 tmp_dir=$(mktemp -d)
 log_info "Cloning repository to temporary directory: $tmp_dir"
 
-git clone $forklift_repo $tmp_dir
+# Use shallow clone to reduce data transfer and improve performance
+git clone --depth 50 --no-single-branch $forklift_repo $tmp_dir
 cd $tmp_dir
+
+# Configure git for better handling of large repositories
+git config http.postBuffer 524288000
+git config http.maxRequestBuffer 100M
+git config core.preloadindex true
+git config core.fscache true
+git config gc.auto 256
 
 # If branch doesn't exist on origin, create it from main
 if git rev-parse --verify "origin/$GIT_BRANCH" >/dev/null 2>&1; then
@@ -74,8 +82,13 @@ git config http.sslVerify "false"
 
 log_info "Adding internal GitLab remote"
 git remote add internal $forklift_internal_repo
-# Always fetch internal so we can pull/rebase when internal has this branch (including when we created branch from main)
-git fetch internal
+# Fetch only the specific branch from internal to reduce data transfer
+log_info "Fetching only branch $GIT_BRANCH from internal repository"
+if ! git fetch --depth 50 internal $GIT_BRANCH; then
+  log_warning "Failed to fetch branch $GIT_BRANCH from internal, trying with HTTP/1.1"
+  git config http.version HTTP/1.1
+  git fetch --depth 50 internal $GIT_BRANCH
+fi
 
 if git rev-parse --verify "internal/$GIT_BRANCH" >/dev/null 2>&1; then
   log_info "Pulling from internal repository (branch: $GIT_BRANCH)"
@@ -85,8 +98,10 @@ else
 fi
 
 if git rev-parse --verify "origin/$GIT_BRANCH" >/dev/null 2>&1; then
-  log_info "Pulling from origin repository (branch: $GIT_BRANCH)"
-  git pull origin $GIT_BRANCH --rebase
+  log_info "Fetching latest from origin repository (branch: $GIT_BRANCH)"
+  git fetch --depth 50 origin $GIT_BRANCH
+  log_info "Rebasing against origin repository (branch: $GIT_BRANCH)"
+  git rebase origin/$GIT_BRANCH
 else
   log_info "Branch created from main, skipping origin pull"
 fi
