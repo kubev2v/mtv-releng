@@ -152,13 +152,23 @@ class TestForkliftBranchFromJenkinsJob:
 
     def test_main_branch(self):
         job = JenkinsJobDTO(
+            iib_version="5.1.0-1",
+            job_name="test",
+            build_number=1,
+            ocp_version="v5.1",
+            job_url="http://jenkins/job/test/1",
+        )
+        assert utils.forklift_branch_from_jenkins_job(job) == "main"
+
+    def test_release_5_0_branch(self):
+        job = JenkinsJobDTO(
             iib_version="5.0.0-1",
             job_name="test",
             build_number=1,
             ocp_version="v5.0",
             job_url="http://jenkins/job/test/1",
         )
-        assert utils.forklift_branch_from_jenkins_job(job) == "main"
+        assert utils.forklift_branch_from_jenkins_job(job) == "release-5.0"
 
     def test_unknown_version_raises(self):
         job = JenkinsJobDTO(

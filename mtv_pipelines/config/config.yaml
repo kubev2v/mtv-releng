@@ -44,6 +44,7 @@ tier1_jobs:
 # the absent key, which is uncaught and crashes the pipeline. An explicit
 # "none" is skipped gracefully; an absent key is not.
 cluster_mappings:
+  "5.1": "none"
   "5.0": "qemtv-01"
   "4.23": "none"
   "4.22": "qemtv-03"
