@@ -106,6 +106,14 @@ spec:
         - quay.io/redhat-user-workloads/rh-mtv-1-tenant/forklift-operator-${version}/deep-inspection-rhel9-${version}
       source: registry.redhat.io/${repo}/mtv-deep-inspection-rhel9
     - mirrors:
+        - registry.stage.redhat.io/${repo}/mtv-copy-appliance-builder-rhel9
+        - quay.io/redhat-user-workloads/rh-mtv-1-tenant/forklift-operator-${version}/copy-appliance-builder-${version}
+      source: registry.redhat.io/${repo}/mtv-copy-appliance-builder-rhel9
+    - mirrors:
+        - registry.stage.redhat.io/${repo}/mtv-copy-appliance-nbd-container-rhel10
+        - quay.io/redhat-user-workloads/rh-mtv-1-tenant/forklift-operator-${version}/copy-appliance-nbd-container-${version}
+      source: registry.redhat.io/${repo}/mtv-copy-appliance-nbd-container-rhel10
+    - mirrors:
         - quay.io/redhat-user-workloads/rh-mtv-1-tenant/forklift-operator-${version}/forklift-controller-${version}
       source: registry.stage.redhat.io/${repo}/mtv-controller-rhel9
     - mirrors:
@@ -165,6 +173,12 @@ spec:
     - mirrors:
         - quay.io/redhat-user-workloads/rh-mtv-1-tenant/forklift-operator-${version}/deep-inspection-rhel9-${version}
       source: registry.stage.redhat.io/${repo}/mtv-deep-inspection-rhel9
+    - mirrors:
+        - quay.io/redhat-user-workloads/rh-mtv-1-tenant/forklift-operator-${version}/copy-appliance-builder-${version}
+      source: registry.stage.redhat.io/${repo}/mtv-copy-appliance-builder-rhel9
+    - mirrors:
+        - quay.io/redhat-user-workloads/rh-mtv-1-tenant/forklift-operator-${version}/copy-appliance-nbd-container-${version}
+      source: registry.stage.redhat.io/${repo}/mtv-copy-appliance-nbd-container-rhel10
 
 EOF
 
