@@ -128,7 +128,7 @@ class Task:
 # Input/Output DTOs are validated from python type hints.
 def task(func: Callable):
     functools.wraps(func)
-    pl_name = os.path.basename(inspect.getfile(func)).strip(".py")
+    pl_name = os.path.basename(inspect.getfile(func)).removesuffix(".py")
 
     signature = inspect.signature(func)
     type_hints = get_type_hints(func)

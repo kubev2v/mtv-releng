@@ -55,7 +55,14 @@ class Skopeo:
             return url
         return PROTOCOL + url
 
-    def inspect(self, img_url: str) -> dict:
+    def __override_arch__(self, arch: str | None) -> None:
+        # Pin the platform so multi-arch images resolve the same way on every
+        # host (e.g. an arm64 laptop vs. the amd64 releng host).
+        if arch:
+            self.cmd.extend(["--override-os", "linux", "--override-arch", arch])
+
+    def inspect(self, img_url: str, arch: str | None = None) -> dict:
+        self.__override_arch__(arch)
         self.cmd.extend(
             [
                 "inspect",
@@ -66,7 +73,10 @@ class Skopeo:
 
         return json.loads(self.__exec__())
 
-    def copy(self, img_url: str, target_path: str) -> None:
+    def copy(
+        self, img_url: str, target_path: str, arch: str | None = None
+    ) -> None:
+        self.__override_arch__(arch)
         self.cmd.extend(
             [
                 "copy",
@@ -76,15 +86,29 @@ class Skopeo:
         )
         self.__exec__()
 
-    def auth(self) -> None:
+    def __login__(self, registry: str, user_var: str, token_var: str) -> None:
         self.cmd = ["bash", "-c"]
-        s = "skopeo login registry.stage.redhat.io "
-        s += f"-u ${REGISTRY_STAGE_USER} -p ${REGISTRY_STAGE_TOKEN}"
-        self.cmd.append(s)
+        self.cmd.append(f"skopeo login {registry} -u ${user_var} -p ${token_var}")
         self.__exec__()
 
-        self.cmd = ["bash", "-c"]
-        s = "skopeo login registry.redhat.io "
-        s += f"-u ${REGISTRY_PROD_USER} -p ${REGISTRY_PROD_TOKEN}"
-        self.cmd.append(s)
-        self.__exec__()
+    def auth(self) -> None:
+        self.__login__(
+            "registry.stage.redhat.io", REGISTRY_STAGE_USER, REGISTRY_STAGE_TOKEN
+        )
+        self.auth_prod()
+
+    def auth_prod(self) -> None:
+        """Log in to registry.redhat.io only (no stage credentials needed)."""
+        self.__login__(
+            "registry.redhat.io", REGISTRY_PROD_USER, REGISTRY_PROD_TOKEN
+        )
+
+    def inspect_raw(self, img_url: str) -> bytes:
+        """Raw manifest (list) bytes; sha256 of them is the pinnable digest."""
+        self.cmd.extend(["inspect", "--raw", self.__prepare_url__(img_url)])
+        return self.__exec__()
+
+    def list_tags(self, repo: str) -> list[str]:
+        """All tags of *repo*, e.g. registry.redhat.io/ubi9/go-toolset."""
+        self.cmd.extend(["list-tags", self.__prepare_url__(repo)])
+        return json.loads(self.__exec__()).get("Tags", [])

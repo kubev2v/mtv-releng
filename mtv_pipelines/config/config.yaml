@@ -189,6 +189,7 @@ timeouts:
   gitlab_mr_read_seconds: 60
   build_single_seconds: 600
   tox_seconds: 900
+  go_command_seconds: 1800
 
 # Konflux OpenShift clusters for `oc login` (mirrors scripts' ensure_oc_login).
 # bundle_sync queries releases/snapshots on the service cluster (rh-mtv-1).
@@ -249,6 +250,64 @@ konflux_stream:
       rpa_dir: "config/stone-prod-p02.hjvn.p1/product/\
         ReleasePlanAdmission/rh-mtv-btrfs"
       rpa_prefix: "forklift-operator-int-rpa"
+
+# dep_bump pipeline: mass Go dependency + base image updates per release branch
+dep_bump:
+  pr_title: "chore(deps): Dependency and base image updates for {version}"
+  branch_prefix: "dep-bump"
+  # Only images from this registry are refreshed
+  registry: "registry.redhat.io"
+  # Requirements whose major/minor may not move unless they are the bump
+  # target; catches drags like the 2.10 xcopy k8s 0.32 -> 0.35 cascade
+  cascade_guard:
+    - "k8s.io/"
+    - "sigs.k8s.io/"
+    - "kubevirt.io/"
+    - "github.com/vmware/govmomi"
+    - "github.com/openshift/"
+    - "github.com/kubev2v/"
+  # Fallback cap when the combined bump set fails and bumps are retried singly
+  max_single_attempts: 20
+  rpm_script: "scripts/rpm_lockfile_refresh.sh"
+  # The PR body is also written here, so dry runs can be reviewed
+  report_dir: "/app/data/dep_bump"
+  repos:
+    forklift:
+      url: "https://github.com/kubev2v/forklift.git"
+      gh_repo: "kubev2v/forklift"
+      containerfiles: ["build/**/Containerfile-downstream*"]
+      exclude: ["build/forklift-operator-bundle/"]
+      rpm_inputs: ".konflux/**/rpms.in.yaml"
+      # Processed in order; modules replacing forklift => ../../ come after
+      # root so its changes are re-vendored into them. The first existing dir
+      # is used (the vsphere module was renamed in 2.12). A go directive
+      # raise is only allowed when every builder has no RPM lockfile.
+      go_modules:
+        - dirs: ["."]
+          vendor: true
+          build: "./..."
+        - dirs: ["cmd/kubectl-mtv"]
+          vendor: true
+          build: "./..."
+          builders: ["build/forklift-cli-download/Containerfile-downstream"]
+        - dirs:
+            - "cmd/vsphere-copy-offload-populator"
+            - "cmd/vsphere-xcopy-volume-populator"
+          vendor: true
+          build: "./..."
+        # Only pins OPA (no Go files): never tidied, scanned via its binary
+        - dirs: [".konflux/validation"]
+          vendor: false
+          tidy: false
+          build: "github.com/open-policy-agent/opa"
+          builders: ["build/validation/Containerfile-downstream"]
+    forklift-must-gather:
+      url: "https://github.com/kubev2v/forklift-must-gather.git"
+      gh_repo: "kubev2v/forklift-must-gather"
+      containerfiles: ["build/Dockerfile-downstream"]
+      exclude: []
+      rpm_inputs: "rpms.in.yaml"
+      go_modules: []
 
 # Forklift "component" repositories
 repositories:
