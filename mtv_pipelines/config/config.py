@@ -207,6 +207,10 @@ def get_konflux_stream() -> dict:
     return _parse_simple("konflux_stream")
 
 
+def get_cve_triage() -> dict:
+    return _parse_simple("cve_triage")
+
+
 def get_dev_preview_marker() -> str:
     return _parse_simple("dev_preview_marker")
 
