@@ -34,4 +34,6 @@ oc annotate components/vsphere-copy-offload-populator-$version build.appstudio.o
 oc annotate components/vsphere-xcopy-volume-populator-$version build.appstudio.openshift.io/request=trigger-pac-build
 oc annotate components/deep-inspection-$version build.appstudio.openshift.io/request=trigger-pac-build
 oc annotate components/deep-inspection-rhel9-$version build.appstudio.openshift.io/request=trigger-pac-build
+oc annotate components/copy-appliance-builder-$version build.appstudio.openshift.io/request=trigger-pac-build
+oc annotate components/copy-appliance-nbd-container-$version build.appstudio.openshift.io/request=trigger-pac-build
 scripts/rebuild_btrfs.sh $version

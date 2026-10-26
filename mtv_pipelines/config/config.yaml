@@ -378,3 +378,13 @@ cmp_mappings:
     upstream: "deep-inspection-rhel9"
     origin: "forklift"
     arg: "DEEP_INSPECTION_IMAGE_RHEL9"
+
+  mtv-copy-appliance-builder-rhel9:
+    upstream: "copy-appliance-builder"
+    origin: "forklift"
+    arg: "COPY_APPLIANCE_TEMPLATE_BUILDER_IMAGE"
+
+  mtv-copy-appliance-nbd-container-rhel10:
+    upstream: "copy-appliance-nbd-container"
+    origin: "forklift"
+    arg: "NBD_CONTAINER_IMAGE"
