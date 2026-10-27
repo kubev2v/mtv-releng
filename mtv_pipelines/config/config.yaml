@@ -388,3 +388,8 @@ cmp_mappings:
     upstream: "copy-appliance-nbd-container"
     origin: "forklift"
     arg: "NBD_CONTAINER_IMAGE"
+
+  mtv-copy-appliance-nbd-container-rhel9:
+    upstream: "copy-appliance-nbd-container"
+    origin: "forklift"
+    arg: "NBD_CONTAINER_IMAGE"
