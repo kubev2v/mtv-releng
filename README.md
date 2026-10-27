@@ -185,6 +185,40 @@ Adds a release stream to the Konflux releng repo (`konflux-release-data`): rende
 
 **Key flags:** `version` (positional, required), `--registry`, `--run-tox`, `--apply`
 
+### `dep_bump`
+Mass dependency and base image update for one release branch, as one PR per repo (forklift and forklift-must-gather; the console plugin is left to MintMaker). It automates what kubev2v/forklift #8571/#8572 (base image refresh, patch bumps) and #8853/#8854 (Go CVE fixes) did by hand.
+
+1. **Base images.** For every `registry.redhat.io` `FROM` in the downstream Containerfiles (forklift `build/**/Containerfile-downstream*` except the operator bundle; must-gather `build/Dockerfile-downstream`), it picks the newest build of the *same stream*: same Go minor for go-toolset (`1.25.x`), same RHEL minor for ubi (`9.7-…`), same OpenShift minor for `ose-*` (`v4.18.0-…`). Digest pins such as must-gather's `ose-cli-rhel9@sha256:…` stay digest pins, moved to the newest manifest list of the stream. RHEL, Go or OpenShift minor jumps are never made routinely.
+2. **Go modules** (forklift root, `cmd/kubectl-mtv`, the vsphere populator, `.konflux/validation`). Security fixes come first: `govulncheck -scan module` (for `.konflux/validation`, which only pins OPA, the built OPA binary is scanned instead). Each target is taken to the newest patch release of its fixed minor, which also picks up fixes the Go vulnerability database doesn't list (e.g. mongo-driver 1.17.10 for CVE-2026-88031). When one target needs a newer version of another, `go get` says so and that target is raised. Patch bumps of direct dependencies are then listed against the post-security state. A bump is kept only if:
+   - it doesn't move a guarded module (`cascade_guard`: k8s, kubevirt, govmomi, ...) by a minor version, or anything by a major version;
+   - it doesn't raise the module's `go` directive, unless all of the module's builders are free of RPM lockfiles (validation, kubectl-mtv). Those builders then move to a go-toolset that supports the new directive;
+   - the module still builds (`go build` with `-mod=vendor`, as Konflux does).
+
+   If the combined set fails, the bumps are retried one at a time and only the passing ones are kept. Root changes are re-vendored into the modules that `replace` forklift with `../../`. A module with a pre-existing problem is skipped with one note instead of a rejection per bump: its baseline build fails, it isn't tidy-clean (`go mod tidy` alone moves guarded modules), or re-running `go mod tidy`/`go mod vendor` alone breaks its build (stale `vendor/`). `.konflux/validation` is never tidied (it has no imports, so tidy would drop every requirement); its `go.sum` is filled by building OPA, then checked with a read-only build as Konflux does. Everything left out is listed in the PR with the reason.
+3. **PR.** Tables of image and Go changes, what was left out and why, and the RPM-locked components whose base changed, with the exact `scripts/rpm_lockfile_refresh.sh` command. The body is also written to `dep_bump.report_dir` (`data/dep_bump/<repo>-<branch>.md`), so dry runs can be reviewed. RPM lockfiles, `.tekton` digests, bundle `ARG *_IMAGE` nudges and `release.conf` are not touched.
+
+**Dry-run by default** (it still clones and runs the Go tooling, but stops before committing). If an open `dep_bump` PR already exists for the branch, the run is skipped unless `--update-existing` is given; that replaces the PR branch and drops commits added to it by hand, such as RPM lockfile refreshes.
+
+Run it through `make run` (Linux container): the forklift root module links libvirt through cgo, so builds need the image's `libvirt-dev`, and they fail on macOS. Local builds use `-tags=strictfipsruntime` without Red Hat's `strictfipsruntime` Go experiment, so they approximate the Konflux build; Konflux CI on the PR does the real one.
+
+```bash
+make run ARGS="dep_bump --branch release-2.12"                 # dry run, both repos
+make run ARGS="dep_bump --branch release-2.12 --repo forklift --apply"
+```
+
+**RPM lockfiles.** After the PR is open, on an x86_64 VM with podman and skopeo, check out the PR branch and run the command from the PR body:
+
+```bash
+REGISTRY_AUTH_USER='11009103|migration-toolkit-virtualization' REGISTRY_AUTH_PASS=... \
+  scripts/rpm_lockfile_refresh.sh /path/to/forklift .konflux/forklift-api .konflux/virt-v2v/appliance
+```
+
+For each component it reads the `rpms.in.yaml` stage's base image and takes the RHEL version from its `cpe` label. Components sharing a solver image (same RHEL major and minor) are then refreshed together in one `ubiN` container — one RHSM registration and one dependency install per group — following the RPM update guide: register with the `mtv-konflux-rhelN` activation key, disable EUS repos, regenerate `redhat.repo`, then run `rpm-lockfile-prototype`. Registrations are retried and unregistered on exit, and failed components get one retry after a cooldown, since RHSM rate-limits rapid registrations. `winlegacyiso` (RHEL 7 packages) uses the guide's two-stage ubi7 → ubi9 flow. The script never commits; review `git status` and push to the PR branch.
+
+**Key flags:** `--branch` (required), `--repo`, `--skip-images`, `--skip-go`, `--apply`, `--update-existing`, `--report-dir`
+
+**Env:** `GH_TOKEN`, `REGISTRY_PROD_USER` / `REGISTRY_PROD_TOKEN`
+
 ---
 
 ## Tasks
