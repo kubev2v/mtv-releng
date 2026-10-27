@@ -241,6 +241,48 @@ class BranchingResultDTO(BaseModel):
     skip_reason: str = ""
 
 
+class CveTicketDTO(BaseModel):
+    key: str
+    summary: str
+    branch: str = ""  # release-2.11 (parsed from the [mtv-2.11] suffix)
+    cve: str = ""
+    component: str = ""  # pscomponent, e.g. mtv-api-rhel9
+    due_date: str = ""
+    status: str = ""
+    labels: list[str] = []
+    description: str = ""
+    embargoed: bool = False
+
+
+class CveTicketsDTO(BaseModel):
+    tickets: list[CveTicketDTO] = []
+    skipped: bool = False
+    skip_reason: str = ""
+
+
+class CveFindingDTO(BaseModel):
+    ticket: CveTicketDTO
+    category: str
+    evidence: list[str] = []
+    image: str = ""
+    label: str = ""
+    comment: str = ""
+    applied: bool = False
+
+
+class CveFindingsDTO(BaseModel):
+    findings: list[CveFindingDTO]
+
+
+class CveTriageResultDTO(BaseModel):
+    counts: dict[str, int] = {}
+    report_path: str = ""
+    applied: int = 0
+    dry_run: bool = False
+    skipped: bool = False
+    skip_reason: str = ""
+
+
 class KonfluxStreamResultDTO(BaseModel):
     version: str
     version_name: str
