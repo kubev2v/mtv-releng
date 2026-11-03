@@ -894,3 +894,139 @@ def test_process_repo_skips_when_open_pr_exists():
         result = asyncio.run(pipeline.process_repo("forklift", cfg, args))
     assert result.skipped and "dep-bump-2.12-x" in result.skip_reason
     m_git.assert_not_called()
+
+
+# --- Jira ticket matching -------------------------------------------------------
+
+
+def _issue(key, summary, labels):
+    return {"key": key, "fields": {"summary": summary, "labels": labels}}
+
+
+def test_cve_search_jql_sorts_and_quotes_labels():
+    assert db.cve_search_jql(["CVE-2026-56852", "CVE-2026-56851"]) == (
+        "project = MTV AND issuetype = Vulnerability "
+        "AND labels = SecurityTracking AND statusCategory != Done "
+        'AND labels IN ("CVE-2026-56851", "CVE-2026-56852")'
+    )
+
+
+def test_ticket_cves_keeps_only_this_branch_stream():
+    issues = [
+        _issue("MTV-6382", "CVE-2026-56852 ... [mtv-2.12]", ["CVE-2026-56852"]),
+        _issue("MTV-6383", "CVE-2026-56852 ... [mtv-2.11]", ["CVE-2026-56852"]),
+        _issue("MTV-6384", "CVE-2026-56852 (no stream)", ["CVE-2026-56852"]),
+    ]
+    assert db.ticket_cves(issues, "release-2.12") == {
+        "CVE-2026-56852": ["MTV-6382"]
+    }
+
+
+def test_base_ref_from_comments_requires_base_bump_marker():
+    comments = [
+        "a human comment",
+        "[cve-triage:AFFECTED]\nBase image: registry.redhat.io/x",
+        "[cve-triage:BASE_BUMP_NEEDED]\nstuff\n"
+        "Base image: registry.redhat.io/openshift4/ose-cli-rhel9@sha256:ab "
+        "(OpenShift 4.16)",
+    ]
+    assert (
+        db.base_ref_from_comments(comments)
+        == "registry.redhat.io/openshift4/ose-cli-rhel9@sha256:ab"
+    )
+    assert db.base_ref_from_comments(comments[:2]) == ""
+
+
+class _FakeJira:
+    """Answers the two searches; comments are per ticket key."""
+
+    def __init__(self, cve_issues=(), base_issues=(), comments=None):
+        self.cve_issues = list(cve_issues)
+        self.base_issues = list(base_issues)
+        self.comments = comments or {}
+
+    def search(self, jql, fields):
+        return self.base_issues if "triage:needs-fix" in jql else self.cve_issues
+
+    def get_comments(self, key):
+        return self.comments.get(key, [])
+
+
+def _result_with_bumps():
+    result = DepBumpRepoResultDTO(repo="forklift", branch="release-2.12")
+    result.go_bumps.append(
+        GoBumpDTO(
+            module=".",
+            path="golang.org/x/text",
+            old="v0.36.0",
+            new="v0.41.0",
+            kind="security",
+            ids=["GO-2026-5970", "CVE-2026-56852"],
+        )
+    )
+    result.go_bumps.append(
+        GoBumpDTO(module=".", path="github.com/other", old="v1.0.0", new="v1.0.1", kind="patch")
+    )
+    result.images.append(
+        ImageBumpDTO(
+            file="build/Dockerfile-downstream",
+            old="registry.redhat.io/openshift4/ose-cli-rhel9@sha256:old",
+            new="registry.redhat.io/openshift4/ose-cli-rhel9@sha256:new",
+        )
+    )
+    return result
+
+
+def test_link_jira_matches_cves_and_base_images():
+    result = _result_with_bumps()
+    jira = _FakeJira(
+        cve_issues=[_issue("MTV-6382", "x [mtv-2.12]", ["CVE-2026-56852"])],
+        base_issues=[_issue("MTV-6790", "y [mtv-2.12]", ["triage:needs-fix"])],
+        comments={
+            "MTV-6790": [
+                "[cve-triage:BASE_BUMP_NEEDED]\nBase image: "
+                "registry.redhat.io/openshift4/ose-cli-rhel9@sha256:old"
+            ]
+        },
+    )
+    db.link_jira(result, jira)
+    assert result.go_bumps[0].jira_keys == ["MTV-6382"]
+    assert result.go_bumps[1].jira_keys == []
+    assert result.images[0].jira_keys == ["MTV-6790"]
+
+
+def test_link_jira_skips_other_branch_stream_and_other_repo():
+    result = _result_with_bumps()
+    jira = _FakeJira(
+        cve_issues=[_issue("MTV-6383", "x [mtv-2.11]", ["CVE-2026-56852"])],
+        base_issues=[_issue("MTV-6790", "y [mtv-2.12]", ["triage:needs-fix"])],
+        comments={
+            "MTV-6790": [
+                "[cve-triage:BASE_BUMP_NEEDED]\nBase image: "
+                "registry.redhat.io/ubi9-minimal:9.7-1"
+            ]
+        },
+    )
+    db.link_jira(result, jira)
+    assert result.go_bumps[0].jira_keys == []
+    assert result.images[0].jira_keys == []
+
+
+def test_render_body_and_commit_carry_resolves_lines():
+    result = _result_with_bumps()
+    result.go_bumps[0].jira_keys = ["MTV-6382"]
+    result.images[0].jira_keys = ["MTV-6790"]
+    body = db.render_body(result, "scripts/rpm_lockfile_refresh.sh")
+    assert "## Jira tickets" in body
+    assert (
+        "| MTV-6382 | `golang.org/x/text` v0.36.0 -> v0.41.0 (security) |"
+        in body
+    )
+    assert (
+        "| MTV-6790 | base image "
+        "`registry.redhat.io/openshift4/ose-cli-rhel9@sha256:old` "
+        "(build/Dockerfile-downstream) |" in body
+    )
+    assert "Resolves: MTV-6382" in body and "Resolves: MTV-6790" in body
+    commit = db.render_commit(result, "chore(deps): title")
+    assert "Resolves: MTV-6382" in commit and "Resolves: MTV-6790" in commit

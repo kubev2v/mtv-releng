@@ -9,6 +9,7 @@ from asyncio import TaskGroup
 from dataclasses import replace
 
 import git as gitpython
+import requests
 from config import config
 from core.task import task
 from models.dto import (
@@ -26,6 +27,7 @@ from tasks.dep_bump import (
     containerfiles,
     go_toolset_for,
     go_toolset_version,
+    link_jira,
     newest_in_stream,
     newest_ocp_tag,
     ocp_stream,
@@ -45,6 +47,7 @@ from utils import create_temp_dir
 from wrappers.gh_cli import GHCLI
 from wrappers.git import Git
 from wrappers.go import Go, GoCommandError
+from wrappers.jira import Jira, JiraForbiddenError
 from wrappers.skopeo import Skopeo
 
 DESCRIPTION = (
@@ -56,6 +59,9 @@ DESCRIPTION = (
     "builders can't take, or break the build are left out and reported.\n"
     "RPM lockfiles are not touched; components that need a lockfile refresh\n"
     "are listed in the PR with the scripts/rpm_lockfile_refresh.sh command.\n"
+    "Open MTV Vulnerability tickets are matched to the bumps (by CVE id for\n"
+    "security bumps, by cve_triage's BASE_BUMP_NEEDED classification for base\n"
+    "images) and listed as Resolves: lines in the PR.\n"
     "One PR per repo per branch. Dry-run by default; pass --apply to push."
 )
 
@@ -92,6 +98,13 @@ def arg_parse(arg_parser: ArgumentParser):
         action="store_true",
         default=False,
         help="[optional] Don't update Go dependencies.",
+    )
+    arg_parser.add_argument(
+        "--skip-jira",
+        dest="skip_jira",
+        action="store_true",
+        default=False,
+        help="[optional] Don't match MTV Jira tickets to the bumps.",
     )
     arg_parser.add_argument(
         "--apply",
@@ -743,6 +756,13 @@ async def process_repo(
         )
 
         changed = bool(git.changed_paths())
+        if changed and not args.skip_jira:
+            try:
+                link_jira(result, Jira())
+            except (ValueError, JiraForbiddenError, requests.RequestException) as e:
+                # A missing token or a Jira hiccup must not cost the run its
+                # report or PR; the bumps stand on their own.
+                logger.warning(f"Jira ticket match skipped: {e}")
         if changed or result.rejected:
             body = render_body(result, cfg["rpm_script"])
             report = _write_report(

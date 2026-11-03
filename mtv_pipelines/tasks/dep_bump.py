@@ -328,11 +328,139 @@ def side_bumps(
     return bumps
 
 
+# --- Jira ticket matching --------------------------------------------------------
+
+
+# Both queries hit MTV "Vulnerability" tickets (the SecurityTracking tickets
+# cve_triage triages); only open ones are worth resolving.
+_TICKET_FIELDS = ["summary", "labels"]
+# cve_triage labels BASE_BUMP_NEEDED and AFFECTED tickets "triage:needs-fix".
+_BASE_BUMP_LABEL = "triage:needs-fix"
+_TRIAGE_MARKER = "[cve-triage:BASE_BUMP_NEEDED]"
+_BASE_REF = re.compile(r"Base image: (\S+)")
+
+
+def cve_search_jql(cves: list[str]) -> str:
+    quoted = ", ".join(f'"{c}"' for c in sorted(cves))
+    return (
+        "project = MTV AND issuetype = Vulnerability "
+        "AND labels = SecurityTracking AND statusCategory != Done "
+        f"AND labels IN ({quoted})"
+    )
+
+
+def base_search_jql() -> str:
+    return (
+        "project = MTV AND issuetype = Vulnerability "
+        "AND labels = SecurityTracking AND statusCategory != Done "
+        f'AND labels = "{_BASE_BUMP_LABEL}"'
+    )
+
+
+def tickets_on_branch(issues: list[dict], branch: str) -> list[dict]:
+    """Tickets whose summary carries this branch's stream ("[mtv-2.12]")."""
+    version = branch.removeprefix("release-")
+    pattern = re.compile(rf"\[mtv-{re.escape(version)}\]")
+    return [
+        i
+        for i in issues
+        if pattern.search(i.get("fields", {}).get("summary", ""))
+    ]
+
+
+def ticket_cves(issues: list[dict], branch: str) -> dict[str, list[str]]:
+    """{CVE label: [ticket keys]} for the tickets on *branch*'s stream."""
+    matched: dict[str, list[str]] = {}
+    for issue in tickets_on_branch(issues, branch):
+        for label in issue.get("fields", {}).get("labels", []):
+            if label.startswith("CVE-"):
+                matched.setdefault(label, []).append(issue["key"])
+    return matched
+
+
+def base_ref_from_comments(comments: list[str]) -> str:
+    """Base image ref from a ticket's cve-triage BASE_BUMP_NEEDED comment."""
+    for body in comments:
+        if _TRIAGE_MARKER in body:
+            m = _BASE_REF.search(body)
+            if m:
+                return m.group(1)
+    return ""
+
+
+def link_jira(result: DepBumpRepoResultDTO, jira) -> None:
+    """Attach MTV Vulnerability ticket keys to the bumps that resolve them.
+
+    Two read-only matches:
+    - security bumps: their govulncheck CVE ids against the tickets' CVE
+      labels;
+    - base image bumps: tickets cve_triage classified BASE_BUMP_NEEDED (its
+      comment names the base image ref) against the refs being bumped, by
+      repository.
+
+    Only public advisory ids and ticket keys are recorded: the PR body is
+    public while the trackers are not.
+    """
+    cves = sorted(
+        {
+            i
+            for b in result.go_bumps
+            if b.kind == "security"
+            for i in b.ids
+            if i.startswith("CVE-")
+        }
+    )
+    if cves:
+        by_cve = ticket_cves(
+            jira.search(cve_search_jql(cves), _TICKET_FIELDS), result.branch
+        )
+        for cve, keys in by_cve.items():
+            for b in result.go_bumps:
+                if b.kind == "security" and cve in b.ids:
+                    b.jira_keys.extend(
+                        k for k in keys if k not in b.jira_keys
+                    )
+    if result.images:
+        for issue in tickets_on_branch(
+            jira.search(base_search_jql(), _TICKET_FIELDS), result.branch
+        ):
+            ref = base_ref_from_comments(jira.get_comments(issue["key"]))
+            if not ref:
+                continue
+            repo = split_ref(ref)[0]
+            for i in result.images:
+                if split_ref(i.old)[0] == repo and issue["key"] not in i.jira_keys:
+                    i.jira_keys.append(issue["key"])
+
+
 # --- rendering ------------------------------------------------------------------
 
 
 def _md(text: str) -> str:
     return text.replace("|", "\\|")
+
+
+def _jira_tickets(
+    result: DepBumpRepoResultDTO,
+) -> list[tuple[str, str]]:
+    """[(key, what resolves it)] in bump order, each ticket once."""
+    tickets: list[tuple[str, str]] = []
+    seen = set()
+    for b in result.go_bumps:
+        if b.kind != "security":
+            continue
+        for key in b.jira_keys:
+            if key not in seen:
+                seen.add(key)
+                tickets.append(
+                    (key, f"`{b.path}` {b.old} -> {b.new} ({b.kind})")
+                )
+    for i in result.images:
+        for key in i.jira_keys:
+            if key not in seen:
+                seen.add(key)
+                tickets.append((key, f"base image `{_md(i.old)}` ({i.file})"))
+    return tickets
 
 
 def render_body(result: DepBumpRepoResultDTO, rpm_script: str) -> str:
@@ -395,6 +523,17 @@ def render_body(result: DepBumpRepoResultDTO, rpm_script: str) -> str:
             "Then commit the regenerated `redhat.repo` / `rpms.lock.yaml` "
             "files to this branch.",
         ]
+    tickets = _jira_tickets(result)
+    if tickets:
+        out += [
+            "",
+            "## Jira tickets",
+            "",
+            "| Ticket | Resolved by |",
+            "|---|---|",
+        ]
+        out += [f"| {key} | {by} |" for key, by in tickets]
+        out += ["", *(f"Resolves: {key}" for key, _ in tickets)]
     return "\n".join(out) + "\n"
 
 
@@ -413,4 +552,5 @@ def render_commit(result: DepBumpRepoResultDTO, title: str) -> str:
         )
     if result.rpm_components:
         lines.append("- RPM lockfiles still need a refresh (see PR)")
+    lines.extend(f"Resolves: {key}" for key, _ in _jira_tickets(result))
     return "\n".join(lines)

@@ -247,6 +247,7 @@ class ImageBumpDTO(BaseModel):
     old: str
     new: str
     reason: str = "newest build"  # or why a go-toolset version moved
+    jira_keys: list[str] = []  # MTV Vulnerability tickets this resolves
 
 
 class GoBumpDTO(BaseModel):
@@ -256,6 +257,7 @@ class GoBumpDTO(BaseModel):
     new: str
     kind: str  # security | patch | go-directive | dependency
     ids: list[str] = []  # GO-/GHSA-/CVE- ids for security bumps
+    jira_keys: list[str] = []  # MTV Vulnerability tickets this resolves
 
 
 class RejectedBumpDTO(BaseModel):

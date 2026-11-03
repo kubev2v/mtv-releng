@@ -5,3 +5,4 @@ scripts/auth.sh
 logs/
 .venv/
 data/
+root.pem
