@@ -102,3 +102,13 @@ class Skopeo:
         self.__login__(
             "registry.redhat.io", REGISTRY_PROD_USER, REGISTRY_PROD_TOKEN
         )
+
+    def inspect_raw(self, img_url: str) -> bytes:
+        """Raw manifest (list) bytes; sha256 of them is the pinnable digest."""
+        self.cmd.extend(["inspect", "--raw", self.__prepare_url__(img_url)])
+        return self.__exec__()
+
+    def list_tags(self, repo: str) -> list[str]:
+        """All tags of *repo*, e.g. registry.redhat.io/ubi9/go-toolset."""
+        self.cmd.extend(["list-tags", self.__prepare_url__(repo)])
+        return json.loads(self.__exec__()).get("Tags", [])

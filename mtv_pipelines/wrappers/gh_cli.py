@@ -156,6 +156,13 @@ class GHCLI:
         self.__exec__()
 
     # Example:
+    # gh pr edit dep-bump-2.12-x --repo kubev2v/forklift --body b
+    def edit_pr_body(self, repo: str, head: str, body: str) -> None:
+        self.cmd = COMMAND.copy()
+        self.cmd.extend(["pr", "edit", head, "--repo", repo, "--body", body])
+        self.__exec__()
+
+    # Example:
     # gh pr checks --json=name,state https://github.com/kubev2v/mtv-fbc/pull/123
     def list_pr_checks(self, pr_url: str):
         self.cmd = COMMAND.copy()

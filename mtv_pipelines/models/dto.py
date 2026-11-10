@@ -241,6 +241,45 @@ class BranchingResultDTO(BaseModel):
     skip_reason: str = ""
 
 
+class ImageBumpDTO(BaseModel):
+    file: str  # Containerfile path relative to the repo
+    stage: str = ""  # "AS <stage>" name, if any
+    old: str
+    new: str
+    reason: str = "newest build"  # or why a go-toolset version moved
+    jira_keys: list[str] = []  # MTV Vulnerability tickets this resolves
+
+
+class GoBumpDTO(BaseModel):
+    module: str  # module dir, e.g. "." or ".konflux/validation"
+    path: str  # module path, or "go" for the go directive
+    old: str
+    new: str
+    kind: str  # security | patch | go-directive | dependency
+    ids: list[str] = []  # GO-/GHSA-/CVE- ids for security bumps
+    jira_keys: list[str] = []  # MTV Vulnerability tickets this resolves
+
+
+class RejectedBumpDTO(BaseModel):
+    module: str
+    path: str
+    target: str = ""
+    reason: str
+
+
+class DepBumpRepoResultDTO(BaseModel):
+    repo: str
+    branch: str
+    images: list[ImageBumpDTO] = []
+    go_bumps: list[GoBumpDTO] = []
+    rejected: list[RejectedBumpDTO] = []
+    rpm_components: list[str] = []
+    pr_url: str = ""
+    dry_run: bool = False
+    skipped: bool = False
+    skip_reason: str = ""
+
+
 class CveTicketDTO(BaseModel):
     key: str
     summary: str
@@ -281,6 +320,10 @@ class CveTriageResultDTO(BaseModel):
     dry_run: bool = False
     skipped: bool = False
     skip_reason: str = ""
+
+
+class DepBumpResultDTO(BaseModel):
+    repos: list[DepBumpRepoResultDTO] = []
 
 
 class KonfluxStreamResultDTO(BaseModel):

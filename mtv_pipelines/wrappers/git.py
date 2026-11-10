@@ -32,11 +32,14 @@ class Git:
         url: str,
         depth: int | None = None,
         single_branch: bool | None = None,
+        branch: str | None = None,
     ) -> None:
         logger.info(f"Cloning from {_redact(url)} to {self.repo_path}")
         kwargs: dict[str, Any] = {}
         if depth is not None:
             kwargs["depth"] = depth
+        if branch is not None:
+            kwargs["branch"] = branch
         if single_branch is False:
             kwargs["no_single_branch"] = True
         self.repo = await asyncio.to_thread(
@@ -184,6 +187,16 @@ class Git:
         # Uses `git add` (not index.add) so directories and deletions/renames
         # within a pathspec get staged, e.g. renamed .tekton/ files.
         self.repo.git.add(*paths)
+
+    def restore_paths(self, paths: list[str]):
+        """Discard tracked and untracked changes under *paths*."""
+        self.repo.git.checkout("HEAD", "--", *paths)
+        self.repo.git.clean("-fdq", "--", *paths)
+
+    def changed_paths(self) -> list[str]:
+        """Paths with uncommitted changes, including untracked files."""
+        out = self.repo.git.status("--porcelain", "--untracked-files=all")
+        return [line[3:] for line in out.splitlines() if line]
 
     def commit(self, message: str):
         self.repo.git.commit("-s", "-m", message)
