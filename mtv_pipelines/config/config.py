@@ -211,6 +211,10 @@ def get_dep_bump() -> dict:
     return _parse_simple("dep_bump")
 
 
+def get_cve_triage() -> dict:
+    return _parse_simple("cve_triage")
+
+
 def get_dev_preview_marker() -> str:
     return _parse_simple("dev_preview_marker")
 
