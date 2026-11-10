@@ -15,6 +15,8 @@ GITLAB_TOKEN = "GITLAB_TOKEN"
 GITLAB_USER = "GITLAB_USER"
 ROOTCOZ_TOKEN = "ROOTCOZ"
 JIRA_FIXED_IN_BUILD_TOKEN = "JIRA_FIXED_IN_BUILD_TOKEN"
+JIRA_EMAIL = "JIRA_EMAIL"
+JIRA_API_TOKEN = "JIRA_API_TOKEN"
 
 
 @dataclass
@@ -81,3 +83,11 @@ class RootcozAuth:
 class JiraFixedInBuildAuth:
     def __init__(self):
         self.token = Auth(JIRA_FIXED_IN_BUILD_TOKEN).value
+
+
+class JiraAuth:
+    """Basic auth (account email + API token) for the Jira Cloud REST API."""
+
+    def __init__(self):
+        self.email = Auth(JIRA_EMAIL).value
+        self.token = Auth(JIRA_API_TOKEN).value

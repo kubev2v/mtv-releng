@@ -250,6 +250,79 @@ konflux_stream:
         ReleasePlanAdmission/rh-mtv-btrfs"
       rpa_prefix: "forklift-operator-int-rpa"
 
+# cve_triage pipeline: weekly triage of MTV SecurityTracking Jira tickets
+cve_triage:
+  jql: "project = MTV AND labels = SecurityTracking AND statusCategory != Done \
+    ORDER BY duedate ASC"
+  report_dir: "/app/data/cve_triage"
+  # Private Slack channel ID for the summary. Left empty, no summary is posted:
+  # the findings concern non-public security trackers.
+  slack_channel: ""
+  # Image and base image must be pulled for the same platform so layer
+  # digests line up (that's how inherited files are detected)
+  arch: "amd64"
+  raw_base_url: "https://raw.githubusercontent.com"
+  osv_api: "https://api.osv.dev/v1/vulns"
+  # The forklift operator bundle pins the digest of every shipped image
+  bundle_repo: "kubev2v/forklift"
+  bundle_containerfile: "build/forklift-operator-bundle/Containerfile-downstream"
+  # cmp_mappings origin -> GitHub repo
+  repos:
+    forklift: "kubev2v/forklift"
+    forklift-console-plugin: "kubev2v/forklift-console-plugin"
+    forklift-must-gather: "kubev2v/forklift-must-gather"
+  # Default: build/<upstream>/Containerfile-downstream in the origin repo
+  containerfiles:
+    mtv-must-gather-rhel9: "build/Dockerfile-downstream"
+    mtv-must-gather-rhel8: "build/Dockerfile-downstream"
+    mtv-console-plugin-rhel9: "build/Containerfile-downstream"
+  # npm deps are bundled into JS, so these are triaged from the branch lockfile
+  lockfiles:
+    mtv-console-plugin-rhel9: ["yarn.lock", "package-lock.json"]
+  # Layer paths scanned for Go binaries and Python packages
+  scan_prefixes:
+    - "usr/bin/"
+    - "usr/local/bin/"
+    - "usr/sbin/"
+    - "usr/libexec/"
+    - "usr/local/lib/"
+    - "usr/lib/python"
+    - "usr/lib64/python"
+    - "app/"
+    - "opt/"
+  # Flaw title (lowercased, text before the first ":") -> package names, used
+  # when OSV has no record for the CVE yet
+  package_aliases:
+    "grpc-go": ["google.golang.org/grpc"]
+    "golang.org/x/text": ["golang.org/x/text"]
+    "oras-go": ["oras.land/oras-go/v2"]
+    "mongodb go driver": ["go.mongodb.org/mongo-driver"]
+    "go-git": ["github.com/go-git/go-git/v5"]
+    "billy": ["github.com/go-git/go-billy/v5"]
+    "buildkit": ["github.com/moby/buildkit"]
+    "moby container framework": ["github.com/docker/docker"]
+    "ansible operator plugins": ["github.com/operator-framework/ansible-operator-plugins"]
+    "pyasn1": ["pyasn1"]
+    "urllib3": ["urllib3"]
+    "ansible-core": ["ansible-core"]
+    "ansible-galaxy": ["ansible-core"]
+    "pip wheel": ["pip"]
+    "react router": ["react-router", "react-router-dom"]
+  # CVE -> package paths whose absence from the binary means "not reachable",
+  # for CVEs where OSV doesn't list the vulnerable import paths
+  vulnerable_paths:
+    "CVE-2026-84445": ["google.golang.org/grpc/xds"]
+    "CVE-2026-88031": ["go.mongodb.org/mongo-driver/mongo/gridfs"]
+  labels:
+    FIXED_IN_BUILD: "triage:ready-for-assigned"
+    NOT_AFFECTED_VERSION: "triage:ready-to-close"
+    NOT_AFFECTED_OCP: "triage:ready-to-close"
+    NOT_AFFECTED_CODE_ABSENT: "triage:ready-to-close"
+    NOT_BUILT: "triage:ready-to-close"
+    BLOCKED_ON_OCP: "triage:blocked-upstream"
+    BASE_BUMP_NEEDED: "triage:needs-fix"
+    AFFECTED: "triage:needs-fix"
+
 # Forklift "component" repositories
 repositories:
   forklift: "https://github.com/kubev2v/forklift"

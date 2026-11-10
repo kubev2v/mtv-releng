@@ -77,6 +77,7 @@ make run        # run the container
 | `STORAGE_OFFLOAD_CLUSTER_EDGE112` | Kubeadmin password for ocp-edge112; required when MTV 2.11 storage offload is enabled |
 | `STORAGE_OFFLOAD_CLUSTER_EDGE113` | Kubeadmin password for ocp-edge113; required when MTV 2.12 storage offload is enabled |
 | `ROOTCOZ` | Rootcoz Bearer token for the Jenkins analyzer API |
+| `JIRA_EMAIL` / `JIRA_API_TOKEN` | Jira Cloud REST credentials for `cve_triage` (Browse + Add Comments + Edit on MTV security issues) |
 
 ---
 
@@ -184,6 +185,85 @@ Branches the MTV operator repos (forklift, console-plugin, must-gather) for a re
 Adds a release stream to the Konflux releng repo (`konflux-release-data`): renders the prod tenant's `operator/streams/<version>.yaml` from `dev-preview.yaml` and registers it in `kustomization.yaml`, appends the btrfs tenant `ProjectDevelopmentStream`, retargets both tenants' `ReleasePlanAdmission`s, runs `build-single.sh` (optionally `tox`), pushes `mtv_add_stream`, and opens the MR via the GitLab API (falls back to logging manual instructions if the token lacks `api` scope). Python port of the Konflux half of `scripts/branching.sh` (post-#53 model). **Dry-run by default** — pass `--apply`.
 
 **Key flags:** `version` (positional, required), `--registry`, `--run-tox`, `--apply`
+
+### `cve_triage`
+Weekly triage of open MTV `SecurityTracking` Jira tickets. For each ticket it:
+
+1. Parses the branch (`[mtv-2.11]` → `release-2.11`), CVE and `pscomponent` label
+2. Resolves the image digest the branch's operator bundle pins (`cmp_mappings` ARG) and pulls it from the Konflux quay tenant. A component the bundle doesn't ship (e.g. `mtv-must-gather-rhel8`) is `NOT_BUILT`
+3. Reads the shipped version of the affected package from the Go buildinfo / Python `dist-info` in the image, or from the branch lockfile for the console plugin. Layers shared with the final `FROM` image mark the package as inherited from the base image
+4. Gets vulnerable ranges and import paths from OSV, falling back to the flaw text
+5. For packages inherited from an OpenShift base image, looks up OpenShift's OCPBUGS tracker for the same CVE and stream
+6. Classifies the ticket: `FIXED_IN_BUILD`, `NOT_AFFECTED_VERSION`, `NOT_AFFECTED_CODE_ABSENT`, `NOT_AFFECTED_OCP`, `NOT_BUILT`, `BLOCKED_ON_OCP`, `BASE_BUMP_NEEDED`, `AFFECTED`, `NEEDS_REVIEW` or `SKIPPED` (embargoed)
+7. Writes `report-<timestamp>.md` / `.json` to `cve_triage.report_dir` and posts a Slack summary (counts + Jira links only) to `cve_triage.slack_channel`
+
+The triage is deterministic: API lookups, file parsing and a fixed rule order, with no AI involved. The only heuristics are the `package_aliases` title keywords and the flaw-text version regex, used when OSV has no record; when they find nothing the ticket is `NEEDS_REVIEW`. Any failure while scanning a component (registry, network, archive, OCPBUGS lookup) also lands its tickets in `NEEDS_REVIEW` rather than aborting the run or guessing.
+
+```text
+ 1. COLLECT
+    Jira REST: open SecurityTracking tickets (MTV)
+      [mtv-2.11] -> release-2.11 | CVE-* label -> CVE | pscomponent -> component
+      skip tickets that already carry a triage:* label
+                                  |
+ 2. ANALYZE  (once per branch + component; once per CVE)
+    OSV: vulnerable ranges + import paths    Operator bundle on the branch:
+      (fallback: flaw-text regex,              ARG <cmp>_IMAGE = digest
+       title -> package keywords)              bundle ships another image -> NOT_BUILT
+                                                     |
+                                               Konflux quay image @ digest
+                                                 Go binaries   -> buildinfo
+                                                 Python        -> dist-info
+                                                 console plugin -> branch lockfile
+                                                     |
+                                               Component Containerfile, final FROM:
+                                                 version label  -> OpenShift stream
+                                                 layer digests  -> "inherited"
+                                                     |
+                                               inherited from openshift4/*?
+                                                 -> OCPBUGS tracker (CVE + image + stream)
+                                  |
+ 3. CLASSIFY  (first match wins)
+    embargoed ....................................... SKIPPED
+    bundle ships a different image .................. NOT_BUILT
+    package not found / scan failed ................. NEEDS_REVIEW
+    shipped version outside the range:
+      older than the vulnerable range ............... NOT_AFFECTED_VERSION
+      at or above the fix ........................... FIXED_IN_BUILD
+    vulnerable paths not linked into the binary ..... NOT_AFFECTED_CODE_ABSENT
+    vulnerable copy built by MTV .................... AFFECTED
+    vulnerable copy inherited from OpenShift, tracker:
+      Not a Bug ..................................... NOT_AFFECTED_OCP
+      Done / Errata ................................. BASE_BUMP_NEEDED
+      still open .................................... BLOCKED_ON_OCP
+      not found ..................................... NEEDS_REVIEW
+                                  |
+ 4. ACT & REPORT
+    report-<ts>.md / .json -> ./data/cve_triage (private host volume)
+    --apply: evidence comment ([cve-triage:X] marker) + triage:* label
+             (never changes the ticket status)
+    Slack (private channel only): counts + Jira links
+```
+
+The findings describe unfixed vulnerabilities on non-public trackers, so evidence and comment bodies only go to the report file on the host's `./data/` volume, never to logs or Slack. Set `slack_channel` to a private channel; when it's empty no summary is posted.
+
+**Dry-run by default.** With `--apply` it posts the structured assessment comment and a `triage:*` label (`ready-for-assigned`, `ready-to-close`, `blocked-upstream`, `needs-fix`). It never changes a ticket's status; a person verifies the label and transitions or closes the ticket. Tickets that already carry a `triage:*` label are skipped unless listed with `--keys`. A ticket with an existing `[cve-triage:...]` comment is never commented on twice, but still gets its label, so a run that commented and then failed to label is completed by the next one.
+
+Curated `vulnerable_paths` in `config.yaml` take precedence over OSV's import list for the "vulnerable code not present" check; add an entry when OSV lists shared packages that every binary links.
+
+```bash
+make run ARGS="cve_triage --keys MTV-6839,MTV-6519"   # dry run, specific tickets
+make run ARGS="cve_triage --apply"                    # weekly run
+```
+
+Host crontab example (ops, not stored in this repo; Monday 07:00):
+
+```cron
+0 7 * * 1 cd /path/to/mtv-releng && make run ARGS="cve_triage --apply"
+```
+
+**Key flags:** `--apply`, `--keys`, `--jql`, `--branches`, `--skip-slack`, `--report-dir`
+
+**Env:** `JIRA_EMAIL`, `JIRA_API_TOKEN`, `SLACK_AUTH_TOKEN`, `REGISTRY_PROD_USER` / `REGISTRY_PROD_TOKEN` (to inspect base images on registry.redhat.io; stage credentials are not needed)
 
 ---
 
