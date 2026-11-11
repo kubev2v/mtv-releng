@@ -271,9 +271,13 @@ def _toolsets_ship(run: _Run, directive: str) -> bool:
         for line in parse_from_lines(run.read(rel))
         if go_toolset_version(line.ref) is not None
     }
-    return bool(refs) and all(
-        semver(_go_of(run, ref)) >= semver(directive) for ref in refs
-    )
+    try:
+        return bool(refs) and all(
+            semver(_go_of(run, ref)) >= semver(directive) for ref in refs
+        )
+    except RuntimeError as e:
+        logger.warning(f"go-toolset label lookup failed: {_first_line(e)}")
+        return False
 
 
 def _toolchain_error(run: _Run, result, version: str) -> str:
@@ -300,13 +304,15 @@ def _toolchain_error(run: _Run, result, version: str) -> str:
                     f"`{rel}` doesn't build with go {version}: "
                     f"{_first_line(e)}"
                 )
-                _reject(
-                    result,
-                    rel,
-                    "go-toolset",
-                    run.toolchains[version] + "; builders stay on their Go",
-                    f"go {version}",
-                )
+                if result is not None:
+                    _reject(
+                        result,
+                        rel,
+                        "go-toolset",
+                        run.toolchains[version]
+                        + "; builders stay on their Go",
+                        f"go {version}",
+                    )
                 break
     return run.toolchains[version]
 
@@ -612,6 +618,11 @@ class _Module:
             edits = self.builder_bumps(after.go)
             if isinstance(edits, str):
                 return False, edits, None
+            for _, _, _, _, new in edits:
+                version = ".".join(map(str, go_toolset_version(new)))
+                error = _toolchain_error(self.run, None, version)
+                if error:
+                    return False, error, None
         try:
             self.build()
         except GoCommandError as e:

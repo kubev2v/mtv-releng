@@ -950,6 +950,39 @@ def test_toolsets_ship_reads_go_from_every_go_toolset():
         assert not pipeline._toolsets_ship(run, "1.27.0")
 
 
+def test_toolsets_ship_label_lookup_failure_is_not_fatal():
+    run = MagicMock()
+    run.repo_cfg = {"containerfiles": ["*"], "exclude": []}
+    run.read = lambda rel: (
+        "FROM registry.redhat.io/ubi9/go-toolset:1.26.10-1 AS builder\n"
+    )
+    run.go_versions = {}
+    skopeo = MagicMock()
+    skopeo.inspect.side_effect = RuntimeError("unauthorized")
+    with (
+        patch("pipelines.dep_bump.containerfiles", return_value=["a"]),
+        patch("pipelines.dep_bump.Skopeo", return_value=skopeo),
+    ):
+        assert not pipeline._toolsets_ship(run, "1.26.0")
+
+
+def test_attempt_builder_go_raise_needs_a_build_with_that_go():
+    base = _mod(go="1.25.0", **{"golang.org__x__net": "v0.57.0"})
+    effects = {"golang.org/x/net@v0.62.0": {"go": "1.26.0"}}
+    fake = FakeGo(base, effects, set())
+    module = _module(fake, allow_raise=True)
+    builder = "registry.redhat.io/ubi9/go-toolset:1.26.10-1"
+    module.builder_bumps = lambda directive: [
+        ("Containerfile", 0, "builder", "old", builder)
+    ]
+    # The image step already found the modules don't build with 1.26.10
+    module.run.toolchains = {"1.26.10": "`.` doesn't build with go 1.26.10"}
+    cand = db.Candidate("golang.org/x/net", "v0.62.0", "security")
+    ok, reason, _ = module.attempt(base, [cand])
+    assert not ok
+    assert reason == "`.` doesn't build with go 1.26.10"
+
+
 def _toolset_run(tags):
     run = MagicMock()
     run.tags_of.return_value = tags
