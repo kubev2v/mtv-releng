@@ -257,6 +257,12 @@ dep_bump:
   branch_prefix: "dep-bump"
   # Only images from this registry are refreshed
   registry: "registry.redhat.io"
+  # A newer RHEL/Go minor becomes a base image target only once its first
+  # build is this old, so brand-new minors get their early respins first
+  settle_days: 30
+  # OCP_VERSIONS here sets the OpenShift stream of ose-* images for both repos
+  # (must-gather's release.conf has none); {branch} is the release branch
+  release_conf_url: "https://raw.githubusercontent.com/kubev2v/forklift/{branch}/build/release.conf"
   # Requirements whose major/minor may not move unless they are the bump
   # target; catches drags like the 2.10 xcopy k8s 0.32 -> 0.35 cascade
   cascade_guard:

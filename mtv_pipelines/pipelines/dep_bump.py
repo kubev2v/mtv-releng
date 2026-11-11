@@ -4,6 +4,7 @@ import hashlib
 import logging
 import os
 import re
+import time
 from argparse import ArgumentParser, Namespace
 from asyncio import TaskGroup
 from dataclasses import replace
@@ -30,7 +31,10 @@ from tasks.dep_bump import (
     link_jira,
     newest_in_stream,
     newest_ocp_tag,
+    ocp_range,
     ocp_stream,
+    ocp_tag_stream,
+    ocp_target_stream,
     parse_from_lines,
     parse_mod_json,
     patch_candidates,
@@ -53,10 +57,13 @@ from wrappers.skopeo import Skopeo
 DESCRIPTION = (
     "Mass dependency + base image update for a release branch.\n\n"
     "Refreshes downstream Containerfile base images to the newest build of\n"
-    "the same version stream, and applies Go security fixes (govulncheck)\n"
-    "and patch bumps of direct dependencies. Bumps that cascade into guarded\n"
-    "ecosystems (k8s, kubevirt, ...), need a go directive raise the module's\n"
-    "builders can't take, or break the build are left out and reported.\n"
+    "the same major (minor versions jump once settle_days old, e.g. ubi9\n"
+    "9.6 -> 9.8; a go-toolset only if every Go module builds with its Go).\n"
+    "OpenShift images move into the release's OCP_VERSIONS range when\n"
+    "outside it. Applies Go security fixes (govulncheck) and patch bumps of\n"
+    "direct dependencies. Bumps that cascade into guarded ecosystems (k8s,\n"
+    "kubevirt, ...), need a go directive no go-toolset ships, or break the\n"
+    "build are left out and reported.\n"
     "RPM lockfiles are not touched; components that need a lockfile refresh\n"
     "are listed in the PR with the scripts/rpm_lockfile_refresh.sh command.\n"
     "Open MTV Vulnerability tickets are matched to the bumps (by CVE id for\n"
@@ -139,6 +146,24 @@ def _first_line(error: Exception) -> str:
     return (lines[0] if lines else str(error).strip())[:300]
 
 
+def _supported_ocp(url: str) -> tuple[str, str] | None:
+    """The release's OCP_VERSIONS range; None leaves ose-* on their stream."""
+    try:
+        resp = requests.get(url, timeout=config.get_timeouts()["http_seconds"])
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(
+            f"{url} failed ({e}); ose-* images stay on their stream"
+        )
+        return None
+    supported = ocp_range(resp.text)
+    if not supported:
+        logger.warning(
+            f"no OCP_VERSIONS in {url}; ose-* images stay on their stream"
+        )
+    return supported
+
+
 def _find_existing_pr(gh_repo: str, branch: str, title: str) -> str:
     """Head branch of an open PR with our title against *branch*, else ''."""
     try:
@@ -162,6 +187,12 @@ class _Run:
         self.tags: dict[str, list[str]] = {}
         self.changed: dict[str, set[str]] = {}  # Containerfile -> stages
         self.timeout = config.get_timeouts().get("go_command_seconds", 1800)
+        self.settled_before = int(time.time()) - cfg["settle_days"] * 86400
+        self.toolchains: dict[str, str] = {}  # Go version -> build error
+        self.go_versions: dict[str, str] = {}  # go-toolset ref -> Go version
+        # Supported OpenShift range of the release, e.g. ('4.20', '4.22')
+        self.ocp_range: tuple[str, str] | None = None
+        self.reasons: dict[str, str] = {}  # new ref -> why, if not routine
 
     def tags_of(self, repo: str) -> list[str]:
         if repo not in self.tags:
@@ -190,12 +221,132 @@ class _Run:
 # --- base images ----------------------------------------------------------------
 
 
-def _refresh_ref(run: _Run, ref: str) -> str | None:
-    """Newest same-stream replacement for *ref*, or None if current/unknown."""
+def _module_dir(run: _Run, mod_cfg: dict) -> str | None:
+    """The first of the module's dirs that has a go.mod on this branch."""
+    return next(
+        (
+            d
+            for d in mod_cfg["dirs"]
+            if os.path.exists(os.path.join(run.repo_dir, d, "go.mod"))
+        ),
+        None,
+    )
+
+
+def _go_of(run: _Run, ref: str) -> str:
+    """Go release a go-toolset image ships (version label, e.g. 1.26.10)."""
+    if ref not in run.go_versions:
+        labels = Skopeo().inspect(ref, arch="amd64").get("Labels", {})
+        run.go_versions[ref] = labels.get("version", "")
+    return run.go_versions[ref]
+
+
+def _ocp_newest(
+    run: _Run, repo: str, stream: str, el: str
+) -> tuple[str | None, str]:
+    """Newest tag of the stream an ose-* image should be on, and why the
+    stream moved ('' if it didn't)."""
+    tags = run.tags_of(repo)
+    target = ocp_target_stream(stream, el, tags, run.ocp_range)
+    why = ""
+    if target != stream:
+        low, high = run.ocp_range
+        why = (
+            f"OpenShift v{stream} -> v{target} "
+            f"(release supports v{low}-v{high})"
+        )
+    return newest_ocp_tag(tags, target, el), why
+
+
+def _toolsets_ship(run: _Run, directive: str) -> bool:
+    """Whether every go-toolset FROM in the repo (after the image refresh)
+    ships at least go *directive*, so a go line raise needs no image edit."""
+    refs = {
+        line.ref
+        for rel in containerfiles(
+            run.repo_dir,
+            run.repo_cfg["containerfiles"],
+            run.repo_cfg["exclude"],
+        )
+        for line in parse_from_lines(run.read(rel))
+        if go_toolset_version(line.ref) is not None
+    }
+    return bool(refs) and all(
+        semver(_go_of(run, ref)) >= semver(directive) for ref in refs
+    )
+
+
+def _toolchain_error(run: _Run, result, version: str) -> str:
+    """Why the branch's Go modules don't build with go *version*, or ''.
+
+    Checked once per version, on the committed modules, before any Go bump.
+    """
+    if version not in run.toolchains:
+        run.toolchains[version] = ""
+        for mod_cfg in run.repo_cfg["go_modules"]:
+            rel = _module_dir(run, mod_cfg)
+            if rel is None:
+                continue
+            go = Go(
+                os.path.join(run.repo_dir, rel),
+                run.timeout,
+                vendor=mod_cfg["vendor"],
+                toolchain=f"go{version}",
+            )
+            try:
+                go.build(mod_cfg["build"])
+            except GoCommandError as e:
+                run.toolchains[version] = (
+                    f"`{rel}` doesn't build with go {version}: "
+                    f"{_first_line(e)}"
+                )
+                _reject(
+                    result,
+                    rel,
+                    "go-toolset",
+                    run.toolchains[version] + "; builders stay on their Go",
+                    f"go {version}",
+                )
+                break
+    return run.toolchains[version]
+
+
+def _refresh_ref(run: _Run, ref: str, result) -> str | None:
+    """Newest same-stream replacement for *ref*, or None if current/unknown.
+
+    A go-toolset moving to a newer Go minor must build every Go module with
+    that Go; if it doesn't, the next older tag minor is tried. The Go release
+    comes from the image's version label, since RHEL-versioned tags (9.8-…)
+    don't name it.
+    """
     repo, tag, digest = split_ref(ref)
     if tag:
-        newest = newest_in_stream(tag, run.tags_of(repo))
-        return f"{repo}:{newest}" if newest and newest != tag else None
+        stream, el = ocp_tag_stream(tag)
+        if stream:
+            newest, why = _ocp_newest(run, repo, stream, el)
+            if not newest or newest == tag:
+                return None
+            new_ref = f"{repo}:{newest}"
+            if why:
+                run.reasons[new_ref] = why
+            return new_ref
+        tags = run.tags_of(repo)
+        while True:
+            newest = newest_in_stream(tag, tags, run.settled_before)
+            if not newest or newest == tag:
+                return None
+            new_ref = f"{repo}:{newest}"
+            if go_toolset_version(ref) is None:
+                return new_ref
+            old_go, new_go = _go_of(run, ref), _go_of(run, new_ref)
+            if new_go and semver(new_go)[:2] <= semver(old_go)[:2]:
+                return new_ref
+            if not _toolchain_error(run, result, new_go):
+                return new_ref
+            minor = ".".join(newest.split("-")[0].split(".")[:2])
+            tags = [
+                t for t in tags if not t.startswith((f"{minor}.", f"{minor}-"))
+            ]
     if not digest:
         return None
     labels = Skopeo().inspect(ref, arch="amd64").get("Labels", {})
@@ -204,12 +355,17 @@ def _refresh_ref(run: _Run, ref: str) -> str | None:
     )
     if not stream:
         return None
-    newest = newest_ocp_tag(run.tags_of(repo), stream, el)
+    newest, why = _ocp_newest(run, repo, stream, el)
     if not newest:
         return None
     raw = Skopeo().inspect_raw(f"{repo}:{newest}")
     new_digest = "sha256:" + hashlib.sha256(raw).hexdigest()
-    return f"{repo}@{new_digest}" if new_digest != digest else None
+    if new_digest == digest:
+        return None
+    new_ref = f"{repo}@{new_digest}"
+    if why:
+        run.reasons[new_ref] = why
+    return new_ref
 
 
 def bump_images(run: _Run, result: DepBumpRepoResultDTO) -> None:
@@ -223,7 +379,7 @@ def bump_images(run: _Run, result: DepBumpRepoResultDTO) -> None:
             if not line.ref.startswith(registry):
                 continue
             try:
-                new_ref = _refresh_ref(run, line.ref)
+                new_ref = _refresh_ref(run, line.ref, result)
             except RuntimeError as e:
                 _reject(
                     result,
@@ -234,8 +390,14 @@ def bump_images(run: _Run, result: DepBumpRepoResultDTO) -> None:
                 continue
             if new_ref:
                 new_text = rewrite_ref(new_text, line.index, line.ref, new_ref)
+                old_minor = split_ref(line.ref)[1].split("-")[0].split(".")[:2]
+                new_minor = split_ref(new_ref)[1].split("-")[0].split(".")[:2]
+                routine = "newest build"
+                if old_minor != new_minor:
+                    routine = "newest minor"
+                reason = run.reasons.get(new_ref, routine)
                 run.record_image(
-                    result, rel, line.stage, line.ref, new_ref, "newest build"
+                    result, rel, line.stage, line.ref, new_ref, reason
                 )
         if new_text != text:
             run.write(rel, new_text)
@@ -344,8 +506,11 @@ class _Module:
         finally:
             tmp.cleanup()
 
-    def allow_go_raise(self) -> bool:
-        """Only when every builder is free of RPM lockfiles."""
+    def allow_go_raise(self, directive: str) -> bool:
+        """When every go-toolset in the repo already ships *directive*, or
+        the module's own builders can be bumped (no RPM lockfiles)."""
+        if _toolsets_ship(self.run, directive):
+            return True
         if not self.builders:
             return False
         stages = {
@@ -404,9 +569,12 @@ class _Module:
         self.go.get([c.spec for c in cands])
 
     def attempt(
-        self, original: ModFile, cands: list[Candidate]
+        self, original: ModFile, cands: list[Candidate], max_go: str = ""
     ) -> tuple[bool, str, ModFile | None]:
-        """Apply *cands* on a clean module; (ok, reason, resulting go.mod)."""
+        """Apply *cands* on a clean module; (ok, reason, resulting go.mod).
+
+        *max_go* caps the go directive the result may need.
+        """
         guard = self.run.cfg["cascade_guard"]
         try:
             self.reset()
@@ -425,12 +593,20 @@ class _Module:
         moved = cascades(original, after, {c.path for c in cands}, guard)
         if moved:
             return False, "cascades: " + "; ".join(moved[:5]), None
+        if max_go and semver(after.go) > semver(max_go):
+            return (
+                False,
+                f"needs go {after.go} (module stays on {max_go}); only "
+                "security fixes raise the go directive",
+                None,
+            )
         if after.go != original.go:
-            if not self.allow_go_raise():
+            if not self.allow_go_raise(after.go):
                 return (
                     False,
-                    f"needs go {after.go} (module is on {original.go}) and "
-                    "its builders have RPM lockfiles or aren't configured",
+                    f"needs go {after.go} (module is on {original.go}); not "
+                    "every go-toolset ships it and the module's builders "
+                    "have RPM lockfiles or aren't configured",
                     None,
                 )
             edits = self.builder_bumps(after.go)
@@ -528,12 +704,15 @@ class _Bumper:
         self.accepted: list[Candidate] = []
         self.after: ModFile | None = None
         self.attempts_left = module.run.cfg["max_single_attempts"]
+        self.max_go = ""  # set once security fixes have settled the go line
 
     def _try(self, cands: list[Candidate]) -> tuple[bool, str]:
         # attempt() may raise targets to satisfy each other; work on copies
         # so a failed attempt doesn't leak inflated versions into the next.
         trial = [replace(c) for c in [*self.accepted, *cands]]
-        ok, reason, after = self.module.attempt(self.original, trial)
+        ok, reason, after = self.module.attempt(
+            self.original, trial, self.max_go
+        )
         if ok:
             self.accepted = trial
             self.after = after
@@ -597,6 +776,10 @@ def update_module(module: _Module, result: DepBumpRepoResultDTO) -> bool:
     for entry in unfixable:
         _reject(result, rel, entry, "no fixed version available upstream")
     bumper.phase(list(security.values()))
+    # A routine patch can drag in a newer go line and a pile of minor bumps
+    # (gin-contrib/cors 1.7.11 wants go 1.26.10 and gin 1.12); only security
+    # fixes are worth that.
+    bumper.max_go = (bumper.after or original).go
 
     # Patch bumps are listed against the post-security state, so they don't
     # fight the versions the security bumps already pulled in.
@@ -616,14 +799,7 @@ def update_module(module: _Module, result: DepBumpRepoResultDTO) -> bool:
 def bump_go(run: _Run, result: DepBumpRepoResultDTO) -> None:
     modules = []
     for mod_cfg in run.repo_cfg["go_modules"]:
-        rel = next(
-            (
-                d
-                for d in mod_cfg["dirs"]
-                if os.path.exists(os.path.join(run.repo_dir, d, "go.mod"))
-            ),
-            None,
-        )
+        rel = _module_dir(run, mod_cfg)
         if rel is not None:
             modules.append(_Module(run, rel, mod_cfg))
     if not modules:
@@ -719,7 +895,10 @@ def _push(
 
 
 async def process_repo(
-    name: str, cfg: dict, args: Namespace
+    name: str,
+    cfg: dict,
+    args: Namespace,
+    supported: tuple[str, str] | None = None,
 ) -> DepBumpRepoResultDTO:
     repo_cfg = cfg["repos"][name]
     branch = args.branch
@@ -747,6 +926,7 @@ async def process_repo(
             result.skip_reason = f"clone of {branch} failed: {_first_line(e)}"
             return result
         run = _Run(tmp.name, git, repo_cfg, cfg)
+        run.ocp_range = supported
         if not args.skip_images:
             bump_images(run, result)
         if not args.skip_go:
@@ -810,10 +990,13 @@ async def dep_bump(
     except RuntimeError as e:
         # Tag lookups that then fail are reported per image.
         logger.warning(f"registry login failed: {_first_line(e)}")
+    supported = _supported_ocp(
+        cfg["release_conf_url"].format(branch=args.branch)
+    )
 
     results = []
     for name in names:
-        res = await process_repo(name, cfg, args)
+        res = await process_repo(name, cfg, args, supported)
         logger.info(
             {
                 "msg": "dep_bump summary",
