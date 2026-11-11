@@ -31,13 +31,23 @@ class Go:
     vendor directory, matching how the downstream Containerfiles build.
     """
 
-    def __init__(self, module_dir: str, timeout: int, vendor: bool = False):
+    def __init__(
+        self,
+        module_dir: str,
+        timeout: int,
+        vendor: bool = False,
+        toolchain: str = "",
+    ):
         self.module_dir = module_dir
         self.timeout = timeout
         self.vendor = vendor
+        # e.g. "go1.26.10": run that Go release (downloaded if needed)
+        self.toolchain = toolchain
 
     def _run(self, args: list[str], goflags: str) -> str:
         env = {**os.environ, "GOFLAGS": goflags, "GOWORK": "off"}
+        if self.toolchain:
+            env["GOTOOLCHAIN"] = self.toolchain
         logger.info(f"[{self.module_dir}] {' '.join(args)}")
         try:
             result = subprocess.run(

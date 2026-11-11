@@ -24,16 +24,34 @@ GO_TOOLSET_TAGS = [
 ]
 
 
-def test_newest_in_stream_keeps_go_minor_and_skips_rhel_and_source_tags():
+def test_newest_in_stream_jumps_go_minor_and_skips_rhel_and_source_tags():
+    tags = GO_TOOLSET_TAGS + ["1.26-1785000000"]
     assert (
-        db.newest_in_stream("1.25.9-1778604137", GO_TOOLSET_TAGS)
-        == "1.25.10-1783614278"
+        db.newest_in_stream("1.25.9-1778604137", tags, 1790000000)
+        == "1.26.1-1790000000"
     )
 
 
-def test_newest_in_stream_keeps_rhel_minor():
-    tags = ["9.7-1778562320", "9.7-1779770818", "9.8-1790000000"]
-    assert db.newest_in_stream("9.7-1778562320", tags) == "9.7-1779770818"
+def test_newest_in_stream_stays_on_minor_until_next_one_settles():
+    tags = GO_TOOLSET_TAGS + ["1.26.2-1799000000"]
+    # 1.26's first build is too recent: newest 1.25.x only
+    assert (
+        db.newest_in_stream("1.25.9-1778604137", tags, 1789999999)
+        == "1.25.10-1783614278"
+    )
+    # Once 1.26 has settled, its newest build counts, however recent
+    assert (
+        db.newest_in_stream("1.25.9-1778604137", tags, 1790000000)
+        == "1.26.2-1799000000"
+    )
+
+
+def test_newest_in_stream_jumps_rhel_minor_within_major():
+    tags = ["9.6-1760340943", "9.8-1790000000", "10.2-1792744468"]
+    assert (
+        db.newest_in_stream("9.6-1760340943", tags, 1790000000)
+        == "9.8-1790000000"
+    )
 
 
 def test_newest_in_stream_single_part_version():
@@ -66,6 +84,41 @@ def test_newest_ocp_tag_and_stream_labels():
         "v4.20.0-202610011108.p2.g33afbae.assembly.stream.el9",
     ]
     assert db.newest_ocp_tag(tags, "4.16", "el9") == tags[1]
+
+
+OCP_TAGS = [
+    "v4.18.0-202610071009.p2.gbc7aeec.assembly.stream.el9",
+    "v4.20.0-202609010000.p2.gaaaaaaa.assembly.stream.el9",
+    "v4.20.0-202611010000.p2.gbbbbbbb.assembly.stream.el9",
+    "v4.21.0-202611020000.p2.gccccccc.assembly.stream.el9",
+    "v4.22.0-202611030000.p2.gddddddd.assembly.stream.el8",
+]
+
+
+def test_ocp_range_from_release_conf():
+    conf = "RELEASE=v2.12\n# Which OCP versions\nOCP_VERSIONS=v4.20-v4.22\n"
+    assert db.ocp_range(conf) == ("4.20", "4.22")
+    assert db.ocp_range("RELEASE=v2.12\n") is None
+
+
+def test_ocp_target_stream_moves_only_when_outside_the_range():
+    # Below the range: lowest supported stream published for its elN
+    assert db.ocp_target_stream("4.18", "el9", OCP_TAGS, ("4.20", "4.22")) == (
+        "4.20"
+    )
+    # Inside the range: stays, even above the floor
+    assert db.ocp_target_stream("4.21", "el9", OCP_TAGS, ("4.20", "4.22")) == (
+        "4.21"
+    )
+    # Nothing published in range for el9 (main: v4.23-v5.1): newest below
+    assert db.ocp_target_stream("4.16", "el9", OCP_TAGS, ("4.23", "5.1")) == (
+        "4.21"
+    )
+    # Above the range floor already, or no range: stays
+    assert db.ocp_target_stream("4.21", "el9", OCP_TAGS, ("4.18", "4.20")) == (
+        "4.21"
+    )
+    assert db.ocp_target_stream("4.18", "el9", OCP_TAGS, None) == "4.18"
 
 
 def test_go_toolset_for_directive_stays_on_its_minor():
@@ -417,7 +470,7 @@ def _module(fake: FakeGo, builders=None, allow_raise=False):
     module.resync = False
     module.broken = ""
     module.restore = fake.reset
-    module.allow_go_raise = lambda: allow_raise
+    module.allow_go_raise = lambda directive: allow_raise
     module.builder_bumps = lambda directive: []
     return module
 
@@ -515,6 +568,48 @@ def test_update_module_go_raise_only_when_allowed():
     kinds = {(b.path, b.kind) for b in result.go_bumps}
     assert ("go", "go-directive") in kinds
     assert ("google.golang.org/grpc", "security") in kinds
+
+
+def test_update_module_only_security_fixes_raise_go_directive():
+    base = _mod(
+        go="1.25.0",
+        **{
+            "golang.org__x__net": "v0.57.0",
+            "github.com__gin-contrib__cors": "v1.7.5",
+        },
+    )
+    effects = {
+        "golang.org/x/net@v0.62.0": {"go": "1.26.0"},
+        "github.com/gin-contrib/cors@v1.7.11": {"go": "1.26.10"},
+    }
+    fake = FakeGo(base, effects, set())
+    fake.govulncheck = lambda: [
+        {"osv": {"id": "GO-2026-6860", "aliases": []}},
+        {
+            "finding": {
+                "osv": "GO-2026-6860",
+                "fixed_version": "v0.62.0",
+                "trace": [{"module": "golang.org/x/net"}],
+            }
+        },
+    ]
+    fake.list_updates = lambda: [
+        {
+            "Path": "github.com/gin-contrib/cors",
+            "Version": "v1.7.5",
+            "Update": {"Version": "v1.7.11"},
+        }
+    ]
+    result = DepBumpRepoResultDTO(repo="forklift", branch="release-2.12")
+    assert (
+        pipeline.update_module(_module(fake, allow_raise=True), result) is True
+    )
+    bumps = {(b.path, b.new) for b in result.go_bumps}
+    assert ("golang.org/x/net", "v0.62.0") in bumps
+    assert ("go", "1.26.0") in bumps
+    [rejected] = result.rejected
+    assert rejected.path == "github.com/gin-contrib/cors"
+    assert "only security fixes raise the go directive" in rejected.reason
 
 
 def test_update_module_skips_module_that_is_not_tidy_clean():
@@ -787,6 +882,7 @@ def test_update_module_reports_baseline_failure():
 
 def test_refresh_ref_digest_pin_resolves_manifest_list_digest():
     run = MagicMock()
+    run.ocp_range = None
     run.tags_of.return_value = [
         "v4.16.0-202607311921.p2.g6f88b58.assembly.stream.el9",
         "v4.16.0-202610011108.p2.g33afbae.assembly.stream.el9",
@@ -805,7 +901,9 @@ def test_refresh_ref_digest_pin_resolves_manifest_list_digest():
     )
     with patch("pipelines.dep_bump.Skopeo", return_value=skopeo):
         new = pipeline._refresh_ref(
-            run, "registry.redhat.io/openshift4/ose-cli-rhel9@sha256:old"
+            run,
+            "registry.redhat.io/openshift4/ose-cli-rhel9@sha256:old",
+            DepBumpRepoResultDTO(repo="forklift", branch="release-2.12"),
         )
     import hashlib
 
@@ -817,6 +915,136 @@ def test_refresh_ref_digest_pin_resolves_manifest_list_digest():
         "registry.redhat.io/openshift4/ose-cli-rhel9:"
         "v4.16.0-202610011108.p2.g33afbae.assembly.stream.el9"
     )
+
+
+def test_refresh_ref_ose_tag_moves_into_supported_range():
+    run = MagicMock()
+    run.tags_of.return_value = OCP_TAGS
+    run.ocp_range = ("4.20", "4.22")
+    run.reasons = {}
+    repo = "registry.redhat.io/openshift4/ose-ansible-rhel9-operator"
+    result = DepBumpRepoResultDTO(repo="forklift", branch="release-2.12")
+    new = pipeline._refresh_ref(run, f"{repo}:{OCP_TAGS[0]}", result)
+    assert new == f"{repo}:{OCP_TAGS[2]}"
+    assert run.reasons[new] == (
+        "OpenShift v4.18 -> v4.20 (release supports v4.20-v4.22)"
+    )
+
+
+def test_toolsets_ship_reads_go_from_every_go_toolset():
+    run = MagicMock()
+    run.repo_cfg = {"containerfiles": ["*"], "exclude": []}
+    files = {
+        "a": "FROM registry.redhat.io/ubi9/go-toolset:1.26.10-1 AS builder\n"
+        "FROM registry.redhat.io/ubi9-minimal:9.8-1\n",
+        "b": "FROM registry.redhat.io/ubi9/go-toolset:9.8-2 AS builder\n",
+    }
+    run.read = files.__getitem__
+    run.go_versions = {
+        "registry.redhat.io/ubi9/go-toolset:1.26.10-1": "1.26.10",
+        "registry.redhat.io/ubi9/go-toolset:9.8-2": "1.26.10",
+    }
+    with patch("pipelines.dep_bump.containerfiles", return_value=["a", "b"]):
+        assert pipeline._toolsets_ship(run, "1.26.0")
+        assert pipeline._toolsets_ship(run, "1.26.10")
+        assert not pipeline._toolsets_ship(run, "1.27.0")
+
+
+def test_toolsets_ship_label_lookup_failure_is_not_fatal():
+    run = MagicMock()
+    run.repo_cfg = {"containerfiles": ["*"], "exclude": []}
+    run.read = lambda rel: (
+        "FROM registry.redhat.io/ubi9/go-toolset:1.26.10-1 AS builder\n"
+    )
+    run.go_versions = {}
+    skopeo = MagicMock()
+    skopeo.inspect.side_effect = RuntimeError("unauthorized")
+    with (
+        patch("pipelines.dep_bump.containerfiles", return_value=["a"]),
+        patch("pipelines.dep_bump.Skopeo", return_value=skopeo),
+    ):
+        assert not pipeline._toolsets_ship(run, "1.26.0")
+
+
+def test_attempt_builder_go_raise_needs_a_build_with_that_go():
+    base = _mod(go="1.25.0", **{"golang.org__x__net": "v0.57.0"})
+    effects = {"golang.org/x/net@v0.62.0": {"go": "1.26.0"}}
+    fake = FakeGo(base, effects, set())
+    module = _module(fake, allow_raise=True)
+    builder = "registry.redhat.io/ubi9/go-toolset:1.26.10-1"
+    module.builder_bumps = lambda directive: [
+        ("Containerfile", 0, "builder", "old", builder)
+    ]
+    # The image step already found the modules don't build with 1.26.10
+    module.run.toolchains = {"1.26.10": "`.` doesn't build with go 1.26.10"}
+    cand = db.Candidate("golang.org/x/net", "v0.62.0", "security")
+    ok, reason, _ = module.attempt(base, [cand])
+    assert not ok
+    assert reason == "`.` doesn't build with go 1.26.10"
+
+
+def _toolset_run(tags):
+    run = MagicMock()
+    run.tags_of.return_value = tags
+    run.settled_before = 1790000000
+    run.toolchains = {}
+    run.repo_dir = "/repo"
+    run.repo_cfg = {
+        "go_modules": [{"dirs": ["."], "vendor": True, "build": "./..."}]
+    }
+    return run
+
+
+def test_refresh_ref_go_minor_jump_needs_a_build_with_that_go():
+    run = _toolset_run(
+        ["1.25.9-1778604137", "1.25.10-1783614278", "1.26.1-1790000000"]
+    )
+    repo = "registry.redhat.io/ubi9/go-toolset"
+    run.go_versions = {
+        f"{repo}:1.25.9-1778604137": "1.25.9",
+        f"{repo}:1.25.10-1783614278": "1.25.10",
+        f"{repo}:1.26.1-1790000000": "1.26.1",
+    }
+    result = DepBumpRepoResultDTO(repo="forklift", branch="release-2.12")
+    ref = f"{repo}:1.25.9-1778604137"
+    go = MagicMock()
+    with (
+        patch("pipelines.dep_bump.os.path.exists", return_value=True),
+        patch("pipelines.dep_bump.Go", return_value=go) as go_cls,
+    ):
+        assert pipeline._refresh_ref(run, ref, result).endswith(
+            ":1.26.1-1790000000"
+        )
+        assert go_cls.call_args.kwargs["toolchain"] == "go1.26.1"
+
+        # The same Go fails for another run: fall back to the newest 1.25.x
+        run.toolchains = {}
+        go.build.side_effect = GoCommandError("x.go:1: some breakage")
+        assert pipeline._refresh_ref(run, ref, result).endswith(
+            ":1.25.10-1783614278"
+        )
+    assert result.rejected[0].target == "go 1.26.1"
+    assert "doesn't build with go 1.26.1" in result.rejected[0].reason
+
+
+def test_refresh_ref_rhel_versioned_toolset_checked_by_label_go():
+    run = _toolset_run(["9.8-1780000000", "9.9-1785000000"])
+    repo = "registry.redhat.io/ubi9/go-toolset"
+    run.go_versions = {
+        f"{repo}:9.8-1780000000": "1.26.10",
+        f"{repo}:9.9-1785000000": "1.27.3",
+    }
+    result = DepBumpRepoResultDTO(repo="forklift", branch="main")
+    go = MagicMock()
+    go.build.side_effect = GoCommandError("x.go:1: some breakage")
+    with (
+        patch("pipelines.dep_bump.os.path.exists", return_value=True),
+        patch("pipelines.dep_bump.Go", return_value=go) as go_cls,
+    ):
+        new = pipeline._refresh_ref(run, f"{repo}:9.8-1780000000", result)
+    assert new is None
+    assert go_cls.call_args.kwargs["toolchain"] == "go1.27.3"
+    assert result.rejected[0].target == "go 1.27.3"
 
 
 def test_render_body_and_commit():

@@ -1,7 +1,10 @@
 """Helpers for the dep_bump pipeline (plain functions, no @task).
 
-Base images are refreshed to the newest build of the *same* version stream
-(go-toolset 1.25.x, ubi9-minimal 9.7, ose-* v4.18). Go modules get security
+Base images are refreshed to the newest build of the same major (go-toolset
+1.x, ubi9-minimal 9.x), so out-of-support minors move forward; ose-* images
+stay on their OpenShift stream while it is inside the release's supported
+OCP range (release.conf OCP_VERSIONS) and move into it otherwise. Go
+modules get security
 fixes and patch bumps, kept only if they don't cascade into guarded
 ecosystems, don't need a go directive raise the module isn't allowed, and
 still build.
@@ -20,6 +23,9 @@ _STAGE = re.compile(r"\bAS\s+(\S+)", re.IGNORECASE)
 _VERSION_TAG = re.compile(r"^(\d+(?:\.\d+)*)-(\d+)$")
 _OCP_TAG = re.compile(
     r"^v(\d+\.\d+)\.\d+-(\d{12})\.p(\d+)\.g[0-9a-f]+\.assembly\.stream\.(el\d+)$"
+)
+_OCP_RANGE = re.compile(
+    r"^OCP_VERSIONS=v?(\d+\.\d+)-v?(\d+\.\d+)\s*$", re.MULTILINE
 )
 _PSEUDO = re.compile(r"\d{14}-[0-9a-f]{12}$")
 _GO_TOOLSET = re.compile(r"/go-toolset$")
@@ -63,25 +69,37 @@ def _version(text: str) -> tuple:
     return tuple(int(p) for p in text.split("."))
 
 
-def newest_in_stream(current: str, tags: list[str]) -> str | None:
+def newest_in_stream(
+    current: str, tags: list[str], settled_before: int = 0
+) -> str | None:
     """Newest tag in *current*'s stream; None if *current* isn't recognized.
 
-    Versioned tags keep major.minor (a single-part version keeps the major);
+    Versioned tags keep the major and the number of version parts, so minors
+    jump (ubi 9.6 -> 9.8, go-toolset 1.25.9 -> 1.26.10) but a 1.25.9 never
+    lands on a floating 1.26 or a RHEL-versioned 9.8 go-toolset tag. Another
+    minor is only taken once it has settled: its first build (the epoch
+    suffix of the tag) is at or before *settled_before*.
     OpenShift tags keep vX.Y and the elN suffix. -source tags never match.
     """
     m = _VERSION_TAG.match(current)
     if m:
         version = _version(m.group(1))
-        width = min(len(version), 2)
-        best = (version, int(m.group(2)), current)
+        stream = []
+        first_build: dict[tuple, int] = {}
         for tag in tags:
             t = _VERSION_TAG.match(tag)
             if not t:
                 continue
             tv = _version(t.group(1))
-            if len(tv) != len(version) or tv[:width] != version[:width]:
+            if len(tv) != len(version) or tv[0] != version[0]:
                 continue
-            best = max(best, (tv, int(t.group(2)), tag))
+            build = int(t.group(2))
+            stream.append((tv, build, tag))
+            first_build[tv[:2]] = min(build, first_build.get(tv[:2], build))
+        best = (version, int(m.group(2)), current)
+        for tv, build, tag in stream:
+            if tv[:2] == version[:2] or first_build[tv[:2]] <= settled_before:
+                best = max(best, (tv, build, tag))
         return best[2]
 
     m = _OCP_TAG.match(current)
@@ -111,6 +129,48 @@ def newest_ocp_tag(tags: list[str], stream: str, el: str) -> str | None:
             key = (t.group(2), int(t.group(3)), tag)
             best = max(best, key) if best else key
     return best[2] if best else None
+
+
+def ocp_tag_stream(tag: str) -> tuple[str, str]:
+    """An ose-* tag -> (stream, elN), or ('', '') for any other tag."""
+    m = _OCP_TAG.match(tag)
+    return (m.group(1), m.group(4)) if m else ("", "")
+
+
+def ocp_range(release_conf: str) -> tuple[str, str] | None:
+    """OCP_VERSIONS=v4.20-v4.22 in a release.conf -> ('4.20', '4.22')."""
+    m = _OCP_RANGE.search(release_conf or "")
+    return (m.group(1), m.group(2)) if m else None
+
+
+def ocp_target_stream(
+    current: str, el: str, tags: list[str], supported: tuple[str, str] | None
+) -> str:
+    """The OpenShift stream an ose-* image should be on.
+
+    Its own while inside the release's supported range; otherwise the lowest
+    supported stream the image is published for (the one every supported
+    cluster can run). When nothing in the range is published yet (main
+    supports OpenShift releases still in development), the newest stream
+    below it. Never moves down, and never above the range.
+    """
+    if not supported:
+        return current
+    low, high = _version(supported[0]), _version(supported[1])
+    cur = _version(current)
+    if cur >= low:
+        return current
+    published = sorted(
+        {
+            _version(t.group(1))
+            for t in map(_OCP_TAG.match, tags)
+            if t and t.group(4) == el and _version(t.group(1)) > cur
+        }
+    )
+    in_range = [v for v in published if low <= v <= high]
+    below = [v for v in published if v < low]
+    best = in_range[0] if in_range else (below[-1] if below else cur)
+    return ".".join(map(str, best))
 
 
 def go_toolset_for(go_directive: str, tags: list[str]) -> str | None:
