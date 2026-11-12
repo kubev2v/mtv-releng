@@ -274,6 +274,10 @@ dep_bump:
     - "github.com/kubev2v/"
   # Fallback cap when the combined bump set fails and bumps are retried singly
   max_single_attempts: 20
+  # Packages `go build` compiles at once. One per CPU exhausts the runner's
+  # process/memory budget (`fork/exec: resource temporarily unavailable`).
+  # Overridable per run with GOMAXPROCS in the environment.
+  go_build_parallelism: 2
   rpm_script: "scripts/rpm_lockfile_refresh.sh"
   # The PR body is also written here, so dry runs can be reviewed
   report_dir: "/app/data/dep_bump"

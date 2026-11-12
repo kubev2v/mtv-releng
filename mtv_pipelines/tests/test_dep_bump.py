@@ -458,7 +458,11 @@ class FakeGo:
 
 def _module(fake: FakeGo, builders=None, allow_raise=False):
     run = MagicMock()
-    run.cfg = {"cascade_guard": GUARD, "max_single_attempts": 20}
+    run.cfg = {
+        "cascade_guard": GUARD,
+        "max_single_attempts": 20,
+        "go_build_parallelism": 2,
+    }
     module = pipeline._Module.__new__(pipeline._Module)
     module.run = run
     module.rel = "."
@@ -857,6 +861,22 @@ def test_go_build_matches_konflux_mod_flags():
     assert first.kwargs["env"]["GOFLAGS"].startswith("-mod=vendor")
     assert second.args[0][:4] == ["go", "build", "-o", os.devnull]
     assert second.kwargs["env"]["GOFLAGS"].startswith("-mod=readonly")
+
+
+def test_go_parallelism_caps_gomaxprocs():
+    from wrappers.go import Go
+
+    done = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("wrappers.go.subprocess.run", return_value=done) as m_run:
+        Go("/m", 60, parallelism=2).build("./...")
+        assert m_run.call_args.kwargs["env"]["GOMAXPROCS"] == "2"
+        # An explicit GOMAXPROCS from the runner wins over the cap
+        with patch.dict(os.environ, {"GOMAXPROCS": "4"}):
+            Go("/m", 60, parallelism=2).build("./...")
+        assert m_run.call_args.kwargs["env"]["GOMAXPROCS"] == "4"
+        # No parallelism configured: leave the environment alone
+        Go("/m", 60).build("./...")
+        assert "GOMAXPROCS" not in m_run.call_args.kwargs["env"]
 
 
 def test_update_module_reports_baseline_failure():

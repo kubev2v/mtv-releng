@@ -48,11 +48,13 @@ RUN case "$(dpkg --print-architecture)" in \
 
 # Go + govulncheck — required by dep_bump (go get/tidy/vendor/build).
 # GOTOOLCHAIN=auto fetches a newer toolchain when a go.mod asks for one.
+# Keep this >= the `go` directive of the branches dep_bump builds (2.11 and
+# 5.0 are on go 1.26.0), or every go command re-downloads a toolchain first.
 # libvirt-dev/pkg-config: forklift's root module links libvirt via cgo.
 # binutils-gold: go passes -fuse-ld=gold on arm64; binutils 2.44 dropped it.
 ENV PATH="/usr/local/go/bin:${PATH}" GOTOOLCHAIN=auto
 RUN apt-get update && apt-get -y install libvirt-dev pkg-config binutils-gold \
-	&& curl -sfL "https://go.dev/dl/go1.25.9.linux-$(dpkg --print-architecture).tar.gz" \
+	&& curl -sfL "https://go.dev/dl/go1.26.11.linux-$(dpkg --print-architecture).tar.gz" \
 	   | tar -xz -C /usr/local \
 	&& GOBIN=/usr/local/bin go install golang.org/x/vuln/cmd/govulncheck@v1.1.4 \
 	&& go version && govulncheck -version

@@ -296,6 +296,7 @@ def _toolchain_error(run: _Run, result, version: str) -> str:
                 run.timeout,
                 vendor=mod_cfg["vendor"],
                 toolchain=f"go{version}",
+                parallelism=run.cfg["go_build_parallelism"],
             )
             try:
                 go.build(mod_cfg["build"])
@@ -424,7 +425,10 @@ class _Module:
         self.cfg = mod_cfg
         self.vendor = mod_cfg["vendor"]
         self.go = Go(
-            os.path.join(run.repo_dir, rel), run.timeout, vendor=self.vendor
+            os.path.join(run.repo_dir, rel),
+            run.timeout,
+            vendor=self.vendor,
+            parallelism=run.cfg["go_build_parallelism"],
         )
         self.paths = _module_paths(rel, self.vendor)
         self.builders = mod_cfg.get("builders", [])
