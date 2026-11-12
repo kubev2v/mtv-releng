@@ -101,12 +101,23 @@ class Git:
         remote_name: str = "origin",
         push_options: list[str] | None = None,
         force: str | None = None,
+        lease: str | None = None,
     ) -> None:
+        """Push *branch*; force="lease" pushes with --force-with-lease.
+
+        *lease* pins the expected remote sha for the lease. Without it, git
+        resolves the tracking ref through the remote's fetch refspec — which
+        a single-branch clone doesn't configure for this branch, so the push
+        fails with "stale info".
+        """
         self._ensure_repo()
         try:
             args = [remote_name, f"{branch}:{branch}"]
             if force == "lease":
-                args.insert(0, "--force-with-lease")
+                if lease:
+                    args.insert(0, f"--force-with-lease={branch}:{lease}")
+                else:
+                    args.insert(0, "--force-with-lease")
             elif force:
                 args.insert(0, "-f")
             for opt in push_options or []:

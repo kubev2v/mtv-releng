@@ -150,6 +150,18 @@ class TestGit:
         g.push("main")
         g.repo.git.push.assert_called_once_with("origin", "main:main")
 
+    def test_push_lease_pins_expected_sha(self, g):
+        g.push("feature", force="lease", lease="abc123")
+        g.repo.git.push.assert_called_once_with(
+            "--force-with-lease=feature:abc123", "origin", "feature:feature"
+        )
+
+    def test_push_lease_without_sha_stays_bare(self, g):
+        g.push("feature", force="lease")
+        g.repo.git.push.assert_called_once_with(
+            "--force-with-lease", "origin", "feature:feature"
+        )
+
     def test_push_raises_on_git_error(self, g):
         g.repo.git.push.side_effect = gitpython.GitCommandError("push", "denied")
         with pytest.raises(RuntimeError, match="Error pushing changes"):

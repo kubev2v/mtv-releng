@@ -893,20 +893,24 @@ def _push(
     git.config("user.name", config.get_git_name())
     GHCLI(run.repo_dir).auth()
     version = branch.removeprefix("release-")
+    lease = None
     if existing:
         head = existing
-        # Make the remote-tracking ref exist so --force-with-lease can check
-        # that nobody pushed since we looked.
+        # Fetch the branch and pin the lease to the sha we saw. A bare
+        # --force-with-lease resolves the tracking ref through the clone's
+        # single-branch fetch refspec, which doesn't cover this branch —
+        # git then rejects the push with "stale info".
         git.repo.git.fetch(
             "origin", f"+refs/heads/{head}:refs/remotes/origin/{head}"
         )
+        lease = git.repo.git.rev_parse(f"refs/remotes/origin/{head}")
     else:
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         head = f"{run.cfg['branch_prefix']}-{version}-{stamp}"
     git.checkout(head, create=True)
     git.add_paths(["-A"])
     git.commit(commit)
-    git.push(branch=head, force="lease" if existing else None)
+    git.push(branch=head, force="lease" if existing else None, lease=lease)
     if existing:
         GHCLI(run.repo_dir).edit_pr_body(gh_repo, head, body)
     else:
