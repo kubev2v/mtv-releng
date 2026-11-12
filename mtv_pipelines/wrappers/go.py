@@ -37,17 +37,25 @@ class Go:
         timeout: int,
         vendor: bool = False,
         toolchain: str = "",
+        parallelism: int | None = None,
     ):
         self.module_dir = module_dir
         self.timeout = timeout
         self.vendor = vendor
         # e.g. "go1.26.10": run that Go release (downloaded if needed)
         self.toolchain = toolchain
+        self.parallelism = parallelism
 
     def _run(self, args: list[str], goflags: str) -> str:
         env = {**os.environ, "GOFLAGS": goflags, "GOWORK": "off"}
         if self.toolchain:
             env["GOTOOLCHAIN"] = self.toolchain
+        # `go build -p` defaults to GOMAXPROCS: one compiler per CPU. The
+        # runner exhausts its process/memory budget that way and fails with
+        # `fork/exec: resource temporarily unavailable`. An explicit
+        # GOMAXPROCS wins, so the runner can retune without a rebuild.
+        if self.parallelism and "GOMAXPROCS" not in os.environ:
+            env["GOMAXPROCS"] = str(self.parallelism)
         logger.info(f"[{self.module_dir}] {' '.join(args)}")
         try:
             result = subprocess.run(

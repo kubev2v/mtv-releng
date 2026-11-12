@@ -136,14 +136,20 @@ def arg_parse(arg_parser: ArgumentParser):
 
 
 def _first_line(error: Exception) -> str:
-    """The first informative line of a command error (skips `# pkg` headers
-    and download chatter)."""
+    """The first informative line(s) of a command error (skips `# pkg`
+    headers and download chatter). A `go: x imports` header alone says
+    nothing about the cause, so the line after it is kept too."""
     lines = [
         ln.strip()
         for ln in str(error).splitlines()
         if ln.strip() and not ln.startswith(("# ", "go: downloading"))
     ]
-    return (lines[0] if lines else str(error).strip())[:300]
+    if not lines:
+        return str(error).strip()[:300]
+    keep = [lines[0]]
+    if lines[0].endswith((" imports", " imports:")) and len(lines) > 1:
+        keep.append(lines[1])
+    return " ".join(keep)[:300]
 
 
 def _supported_ocp(url: str) -> tuple[str, str] | None:
@@ -296,6 +302,7 @@ def _toolchain_error(run: _Run, result, version: str) -> str:
                 run.timeout,
                 vendor=mod_cfg["vendor"],
                 toolchain=f"go{version}",
+                parallelism=run.cfg["go_build_parallelism"],
             )
             try:
                 go.build(mod_cfg["build"])
@@ -424,7 +431,10 @@ class _Module:
         self.cfg = mod_cfg
         self.vendor = mod_cfg["vendor"]
         self.go = Go(
-            os.path.join(run.repo_dir, rel), run.timeout, vendor=self.vendor
+            os.path.join(run.repo_dir, rel),
+            run.timeout,
+            vendor=self.vendor,
+            parallelism=run.cfg["go_build_parallelism"],
         )
         self.paths = _module_paths(rel, self.vendor)
         self.builders = mod_cfg.get("builders", [])
