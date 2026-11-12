@@ -13,7 +13,12 @@ from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from models.dto import CveFindingDTO, CveFindingsDTO, CveTicketDTO
+from models.dto import (
+    CveFindingDTO,
+    CveFindingsDTO,
+    CveTicketDTO,
+    EmptyDTO,
+)
 from tasks import cve_triage as ct
 from tasks.cve_triage import BaseImage, Facts, FoundPackage, OcpTracker
 
@@ -664,6 +669,80 @@ def test_act_and_report_apply_labels_but_does_not_recomment(triage_config):
     jira.add_labels.assert_called_once_with(
         "MTV-1", ["triage:ready-for-assigned"]
     )
+
+
+def test_act_and_report_recomments_when_category_changed(tmp_path):
+    # blocked-upstream tickets are re-triaged every run; when the assessment
+    # flips, the new category's comment must be posted — dep_bump matches
+    # base-image tickets by the BASE_BUMP_NEEDED marker in the comment.
+    cfg = {
+        "report_dir": str(tmp_path),
+        "labels": {ct.BASE_BUMP_NEEDED: "triage:needs-fix"},
+    }
+    jira = MagicMock()
+    jira.get_comments.return_value = ["old _[cve-triage:BLOCKED_ON_OCP]_"]
+    with patch(
+        "pipelines.cve_triage.config.get_cve_triage", return_value=cfg
+    ), patch("pipelines.cve_triage.Jira", return_value=jira):
+        result = run_task(
+            pipeline.act_and_report,
+            CveFindingsDTO(
+                findings=[_finding(category=ct.BASE_BUMP_NEEDED)]
+            ),
+            _args(apply=True),
+        )
+    assert result.applied == 1
+    jira.add_comment.assert_called_once()
+
+
+def test_collect_tickets_retriages_only_blocked_upstream(tmp_path):
+    cfg = {
+        "jql": "unused",
+        "labels": {ct.BLOCKED_ON_OCP: "triage:blocked-upstream"},
+    }
+    issues = [
+        {
+            "key": "MTV-1",
+            "fields": {
+                "summary": "CVE-1 x/mtv-api-rhel9: lib: bug [mtv-2.10]",
+                "labels": [
+                    "SecurityTracking",
+                    "triage:blocked-upstream",
+                    "CVE-2026-1",
+                ],
+            },
+        },
+        {
+            "key": "MTV-2",
+            "fields": {
+                "summary": "CVE-2 x/mtv-api-rhel9: lib: bug [mtv-2.10]",
+                "labels": [
+                    "SecurityTracking",
+                    "triage:ready-for-assigned",
+                    "CVE-2026-2",
+                ],
+            },
+        },
+        {
+            "key": "MTV-3",
+            "fields": {
+                "summary": "CVE-3 x/mtv-api-rhel9: lib: bug [mtv-2.10]",
+                "labels": ["SecurityTracking", "CVE-2026-3"],
+            },
+        },
+    ]
+    jira = MagicMock()
+    jira.search.return_value = issues
+    with patch("pipelines.cve_triage.config.get_cve_triage",
+               return_value=cfg), patch(
+        "pipelines.cve_triage.Jira", return_value=jira
+    ):
+        result = run_task(
+            pipeline.collect_tickets,
+            EmptyDTO(),
+            Namespace(keys="", jql="", branches=""),
+        )
+    assert [t.key for t in result.tickets] == ["MTV-1", "MTV-3"]
 
 
 # --- failure handling (PR #61 review) -----------------------------------------

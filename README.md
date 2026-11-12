@@ -241,6 +241,8 @@ The triage is deterministic: API lookups, file parsing and a fixed rule order, w
     Jira REST: open SecurityTracking tickets (MTV)
       [mtv-2.11] -> release-2.11 | CVE-* label -> CVE | pscomponent -> component
       skip tickets that already carry a triage:* label
+      (except triage:blocked-upstream: its blocking condition is
+       external and can clear, so those are re-triaged every run)
                                   |
  2. ANALYZE  (once per branch + component; once per CVE)
     OSV: vulnerable ranges + import paths    Operator bundle on the branch:

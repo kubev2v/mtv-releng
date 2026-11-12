@@ -150,11 +150,19 @@ async def collect_tickets(
         return CveTicketsDTO(skipped=True, skip_reason=f"Jira search: {e}")
 
     branches = _split(args.branches)
+    # blocked-upstream is the one label whose blocking condition is external
+    # and can clear (the OCPBUGS tracker resolving): re-triage those so they
+    # flip to needs-fix and get linked into dep_bump PRs. Everything else is
+    # a terminal assessment for a human to act on.
+    blocked_label = config.get_cve_triage()["labels"]["BLOCKED_ON_OCP"]
     tickets = []
     for ticket in (parse_ticket(i) for i in issues):
         if branches and ticket.branch not in branches:
             continue
-        if not keys and any(lbl.startswith("triage:") for lbl in ticket.labels):
+        if not keys and any(
+            lbl.startswith("triage:") and lbl != blocked_label
+            for lbl in ticket.labels
+        ):
             logger.info(f"{ticket.key} already triaged; skipping")
             continue
         tickets.append(ticket)
@@ -441,13 +449,17 @@ def _lookup_ocp(
 
 
 def _apply(jira: Jira, finding: CveFindingDTO) -> bool:
-    """Comment (once) and label; True when a new comment was posted.
+    """Comment (once per category) and label; True when a new comment was
+    posted.
 
-    The label is added even when the comment already exists, so a run that
-    commented but failed to label is completed by the next one.
+    The marker is category-specific, so a re-triaged ticket whose assessment
+    changed gets a fresh comment — dep_bump matches base-image tickets by the
+    BASE_BUMP_NEEDED marker in the comment, not just the label. The label is
+    added even when the comment already exists, so a run that commented but
+    failed to label is completed by the next one.
     """
     key = finding.ticket.key
-    marker = COMMENT_MARKER.split("{", 1)[0]
+    marker = COMMENT_MARKER.format(category=finding.category)
     commented = any(marker in body for body in jira.get_comments(key))
     if commented:
         logger.info(f"{key} already has a cve-triage comment; labelling only")
