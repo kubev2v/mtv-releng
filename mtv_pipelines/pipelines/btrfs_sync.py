@@ -35,6 +35,14 @@ def arg_parse(arg_parser: ArgumentParser):
         default=False,
         help="[optional] Do everything except the final force-push to internal.",
     )
+    arg_parser.add_argument(
+        "--fetch-depth",
+        type=int,
+        default=None,
+        help="[optional] Override btrfs_sync.fetch_depth from config, for when\n"
+        "the branches diverge by more commits than the configured depth.\n"
+        "0 fetches the full history (no depth limit).",
+    )
 
 
 @task
@@ -45,7 +53,11 @@ async def sync_branch(
 
     btrfs = config.get_btrfs_sync()
     public_repo = btrfs["public_repo"]
-    fetch_depth = btrfs["fetch_depth"]
+    # None: not given, use the config default. 0: no --depth at all.
+    if args.fetch_depth is None:
+        fetch_depth = btrfs["fetch_depth"]
+    else:
+        fetch_depth = args.fetch_depth or None
 
     try:
         internal_url = GitlabAuth().authenticated_url(btrfs["internal_repo"])
