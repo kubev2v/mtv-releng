@@ -51,8 +51,13 @@ shift
 # account).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -z "${REGISTRY_AUTH_USER:-}" || -z "${REGISTRY_AUTH_PASS:-}" ]]; then
-  # shellcheck disable=SC1091
-  [[ -f "$SCRIPT_DIR/auth.sh" ]] && source "$SCRIPT_DIR/auth.sh"
+  # auth.sh exports the pair first, then runs its own skopeo logins (the
+  # legacy scripts rely on those); a failed login there must not abort the
+  # refresh — the exports are already in place by then.
+  if [[ -f "$SCRIPT_DIR/auth.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/auth.sh" || true
+  fi
   : "${REGISTRY_AUTH_USER:=${registry_auth_user:-}}"
   : "${REGISTRY_AUTH_PASS:=${registry_auth_pass:-}}"
 fi
