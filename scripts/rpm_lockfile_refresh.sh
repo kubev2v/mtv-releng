@@ -11,6 +11,11 @@
 #   REGISTRY_AUTH_PASS=... \
 #     scripts/rpm_lockfile_refresh.sh /path/to/checkout [component-dir ...]
 #
+# With neither set, REGISTRY_AUTH_USER/PASS fall back to the pipeline .env's
+# REGISTRY_PROD_USER/REGISTRY_PROD_TOKEN (same service account), e.g.:
+#
+#   set -a; source /path/to/mtv-releng/.env; set +a
+#
 # component-dir is the directory holding rpms.in.yaml, relative to the
 # checkout (".konflux/forklift-api", ".konflux/virt-v2v/appliance", "." for
 # must-gather). Without any, every rpms.in.yaml in the checkout is refreshed.
@@ -39,8 +44,13 @@ die() { echo "error: $*" >&2; exit 1; }
 [[ $# -ge 1 ]] || die "usage: $0 <checkout> [component-dir ...]"
 CHECKOUT="$(cd "$1" && pwd)" || die "no such checkout: $1"
 shift
-: "${REGISTRY_AUTH_USER:?set REGISTRY_AUTH_USER}"
-: "${REGISTRY_AUTH_PASS:?set REGISTRY_AUTH_PASS}"
+# REGISTRY_AUTH_USER/PASS are the canonical names here, but the pipeline's
+# .env REGISTRY_PROD_USER/REGISTRY_PROD_TOKEN is the same registry.redhat.io
+# service account, so fall back to it and save a second copy of the secret.
+: "${REGISTRY_AUTH_USER:=${REGISTRY_PROD_USER:-}}"
+: "${REGISTRY_AUTH_PASS:=${REGISTRY_PROD_TOKEN:-}}"
+: "${REGISTRY_AUTH_USER:?set REGISTRY_AUTH_USER (or REGISTRY_PROD_USER)}"
+: "${REGISTRY_AUTH_PASS:?set REGISTRY_AUTH_PASS (or REGISTRY_PROD_TOKEN)}"
 export REGISTRY_AUTH_USER REGISTRY_AUTH_PASS
 command -v podman >/dev/null || die "podman is required"
 command -v skopeo >/dev/null || die "skopeo is required"
