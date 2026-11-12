@@ -10,10 +10,16 @@ import json
 import os
 import tarfile
 from argparse import Namespace
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from models.dto import CveFindingDTO, CveFindingsDTO, CveTicketDTO
+from models.dto import (
+    CveFindingDTO,
+    CveFindingsDTO,
+    CveTicketDTO,
+    EmptyDTO,
+)
 from tasks import cve_triage as ct
 from tasks.cve_triage import BaseImage, Facts, FoundPackage, OcpTracker
 
@@ -427,6 +433,96 @@ def test_classify_base_bump_needed_when_ocp_fixed():
     )
 
 
+def test_classify_base_bump_needed_when_newest_assembly_fixed():
+    # OCPBUGS still open, but the newest same-stream assembly ships a fixed
+    # version: the base refresh itself is the fix, no need to wait for the
+    # tracker.
+    assert (
+        _classify(
+            candidates=["pyasn1"],
+            found=[
+                FoundPackage("pyasn1", "0.6.4", "/usr/local/lib/python3.12", True)
+            ],
+            ranges=ct.ranges_from_text("Prior to 0.6.5, the decoders"),
+            base=OCP_OPERATOR,
+            ocp=OcpTracker("OCPBUGS-98760", "New", ""),
+            base_newest={
+                "tag": "v4.18.0-202611031655.p2.g7210687.assembly.stream.el9",
+                "python": {
+                    "pyasn1": (
+                        "0.6.5",
+                        "usr/local/lib/python3.12/site-packages/"
+                        "pyasn1-0.6.5.dist-info/METADATA",
+                        True,
+                    )
+                },
+            },
+        )
+        == ct.BASE_BUMP_NEEDED
+    )
+
+
+def test_classify_blocked_when_newest_assembly_still_vulnerable():
+    facts = Facts(
+        ticket=_ticket(),
+        candidates=["pyasn1"],
+        found=[
+            FoundPackage("pyasn1", "0.6.4", "/usr/local/lib/python3.12", True)
+        ],
+        ranges=ct.ranges_from_text("Prior to 0.6.5, the decoders"),
+        base=OCP_OPERATOR,
+        ocp=OcpTracker("OCPBUGS-98760", "New", ""),
+        base_newest={
+            "tag": "v4.18.0-202611031655.p2.g7210687.assembly.stream.el9",
+            "python": {
+                "pyasn1": (
+                    "0.6.4",
+                    "usr/local/lib/python3.12/site-packages/"
+                    "pyasn1-0.6.4.dist-info/METADATA",
+                    True,
+                )
+            },
+        },
+    )
+    category, evidence = ct.classify(facts, JIRA)
+    assert category == ct.BLOCKED_ON_OCP
+    assert any("still vulnerable" in line for line in evidence)
+
+
+def test_classify_blocked_when_pinned_tag_is_newest():
+    facts = Facts(
+        ticket=_ticket(),
+        candidates=["pyasn1"],
+        found=[
+            FoundPackage("pyasn1", "0.6.4", "/usr/local/lib/python3.12", True)
+        ],
+        ranges=ct.ranges_from_text("Prior to 0.6.5, the decoders"),
+        base=OCP_OPERATOR,
+        ocp=OcpTracker("OCPBUGS-98760", "New", ""),
+        base_newest={"uptodate": True, "tag": "v4.18.0-202610231407"},
+    )
+    category, evidence = ct.classify(facts, JIRA)
+    assert category == ct.BLOCKED_ON_OCP
+    assert any("already the newest assembly" in line for line in evidence)
+
+
+def test_classify_blocked_when_newest_scan_failed():
+    # A failed newest-assembly scan falls back to the OCPBUGS status.
+    assert (
+        _classify(
+            candidates=["pyasn1"],
+            found=[
+                FoundPackage("pyasn1", "0.6.4", "/usr/local/lib/python3.12", True)
+            ],
+            ranges=ct.ranges_from_text("Prior to 0.6.5, the decoders"),
+            base=OCP_OPERATOR,
+            ocp=OcpTracker("OCPBUGS-98760", "New", ""),
+            base_newest={"error": "Could not scan the newest assembly"},
+        )
+        == ct.BLOCKED_ON_OCP
+    )
+
+
 def test_classify_affected_when_mtv_builds_vulnerable_version():
     # e.g. MTV-6783 before the code-absent check: mongo-driver 1.17.6 in xcopy
     assert (
@@ -666,6 +762,80 @@ def test_act_and_report_apply_labels_but_does_not_recomment(triage_config):
     )
 
 
+def test_act_and_report_recomments_when_category_changed(tmp_path):
+    # blocked-upstream tickets are re-triaged every run; when the assessment
+    # flips, the new category's comment must be posted — dep_bump matches
+    # base-image tickets by the BASE_BUMP_NEEDED marker in the comment.
+    cfg = {
+        "report_dir": str(tmp_path),
+        "labels": {ct.BASE_BUMP_NEEDED: "triage:needs-fix"},
+    }
+    jira = MagicMock()
+    jira.get_comments.return_value = ["old _[cve-triage:BLOCKED_ON_OCP]_"]
+    with patch(
+        "pipelines.cve_triage.config.get_cve_triage", return_value=cfg
+    ), patch("pipelines.cve_triage.Jira", return_value=jira):
+        result = run_task(
+            pipeline.act_and_report,
+            CveFindingsDTO(
+                findings=[_finding(category=ct.BASE_BUMP_NEEDED)]
+            ),
+            _args(apply=True),
+        )
+    assert result.applied == 1
+    jira.add_comment.assert_called_once()
+
+
+def test_collect_tickets_retriages_only_blocked_upstream(tmp_path):
+    cfg = {
+        "jql": "unused",
+        "labels": {ct.BLOCKED_ON_OCP: "triage:blocked-upstream"},
+    }
+    issues = [
+        {
+            "key": "MTV-1",
+            "fields": {
+                "summary": "CVE-1 x/mtv-api-rhel9: lib: bug [mtv-2.10]",
+                "labels": [
+                    "SecurityTracking",
+                    "triage:blocked-upstream",
+                    "CVE-2026-1",
+                ],
+            },
+        },
+        {
+            "key": "MTV-2",
+            "fields": {
+                "summary": "CVE-2 x/mtv-api-rhel9: lib: bug [mtv-2.10]",
+                "labels": [
+                    "SecurityTracking",
+                    "triage:ready-for-assigned",
+                    "CVE-2026-2",
+                ],
+            },
+        },
+        {
+            "key": "MTV-3",
+            "fields": {
+                "summary": "CVE-3 x/mtv-api-rhel9: lib: bug [mtv-2.10]",
+                "labels": ["SecurityTracking", "CVE-2026-3"],
+            },
+        },
+    ]
+    jira = MagicMock()
+    jira.search.return_value = issues
+    with patch("pipelines.cve_triage.config.get_cve_triage",
+               return_value=cfg), patch(
+        "pipelines.cve_triage.Jira", return_value=jira
+    ):
+        result = run_task(
+            pipeline.collect_tickets,
+            EmptyDTO(),
+            Namespace(keys="", jql="", branches=""),
+        )
+    assert [t.key for t in result.tickets] == ["MTV-1", "MTV-3"]
+
+
 # --- failure handling (PR #61 review) -----------------------------------------
 
 API_BUNDLE = {
@@ -886,3 +1056,67 @@ def test_skopeo_auth_prod_skips_stage_login():
         "skopeo login registry.redhat.io "
         "-u $REGISTRY_PROD_USER -p $REGISTRY_PROD_TOKEN"
     ]
+
+
+# --- newest base assembly scan ------------------------------------------------
+
+OSE_BASE = BaseImage(
+    ref="registry.redhat.io/openshift4/ose-ansible-rhel9-operator:"
+    "v4.22.0-202610231407.p2.g7210687.assembly.stream.el9",
+    component="openshift4/ose-ansible-rhel9-operator",
+    stream="4.22",
+)
+OSE_NEWER = "v4.22.0-202611031655.p2.g7210687.assembly.stream.el9"
+
+
+def test_scan_newest_base_reports_uptodate_without_copy():
+    skopeo = MagicMock()
+    skopeo.list_tags.return_value = [
+        "v4.22.0-202609011000.p2.g7210687.assembly.stream.el9",
+        "v4.22.0-202610231407.p2.g7210687.assembly.stream.el9",
+    ]
+    with patch("pipelines.cve_triage.Skopeo", return_value=skopeo):
+        result = pipeline._scan_newest_base(OSE_BASE, set())
+    assert result == {
+        "uptodate": True,
+        "tag": "v4.22.0-202610231407.p2.g7210687.assembly.stream.el9",
+    }
+    skopeo.copy.assert_not_called()
+
+
+def test_scan_newest_base_scans_the_newer_assembly(tmp_path):
+    cfg = {"arch": "amd64", "scan_prefixes": ["usr/local/lib/"]}
+
+    def fake_copy(_ref, dest, arch=None):
+        digest = _layer(
+            dest,
+            {
+                "usr/local/lib/python3.12/site-packages/"
+                "pyasn1-0.6.5.dist-info/METADATA": b"x"
+            },
+        )
+        with open(os.path.join(dest, "manifest.json"), "w") as f:
+            json.dump({"layers": [{"digest": digest}]}, f)
+
+    skopeo = MagicMock()
+    skopeo.list_tags.return_value = [
+        "v4.22.0-202610231407.p2.g7210687.assembly.stream.el9",
+        OSE_NEWER,
+    ]
+    skopeo.copy.side_effect = fake_copy
+    tmp = SimpleNamespace(name=str(tmp_path), cleanup=lambda: None)
+    with patch("pipelines.cve_triage.Skopeo", return_value=skopeo), patch(
+        "pipelines.cve_triage.config.get_cve_triage", return_value=cfg
+    ), patch("pipelines.cve_triage.create_temp_dir", return_value=tmp):
+        result = pipeline._scan_newest_base(OSE_BASE, set())
+    assert result["tag"] == OSE_NEWER
+    assert result["python"]["pyasn1"][0] == "0.6.5"
+    skopeo.copy.assert_called_once()
+
+
+def test_scan_newest_base_guarded_on_failure():
+    skopeo = MagicMock()
+    skopeo.list_tags.side_effect = RuntimeError("registry unreachable")
+    with patch("pipelines.cve_triage.Skopeo", return_value=skopeo):
+        result = pipeline._scan_newest_base(OSE_BASE, set())
+    assert "error" in result

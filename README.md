@@ -230,7 +230,7 @@ Weekly triage of open MTV `SecurityTracking` Jira tickets. For each ticket it:
 2. Resolves the image digest the branch's operator bundle pins (`cmp_mappings` ARG) and pulls it from the Konflux quay tenant. A component the bundle doesn't ship (e.g. `mtv-must-gather-rhel8`) is `NOT_BUILT`
 3. Reads the shipped version of the affected package from the Go buildinfo / Python `dist-info` in the image, or from the branch lockfile for the console plugin. Layers shared with the final `FROM` image mark the package as inherited from the base image
 4. Gets vulnerable ranges and import paths from OSV, falling back to the flaw text
-5. For packages inherited from an OpenShift base image, looks up OpenShift's OCPBUGS tracker for the same CVE and stream
+5. For packages inherited from an OpenShift base image, looks up OpenShift's OCPBUGS tracker for the same CVE and stream, and scans the newest same-stream assembly of that base (same tag choice as `dep_bump`): a fixed version there means `BASE_BUMP_NEEDED` even before OCPBUGS resolves; a still-vulnerable version is recorded as evidence on `BLOCKED_ON_OCP`
 6. Classifies the ticket: `FIXED_IN_BUILD`, `NOT_AFFECTED_VERSION`, `NOT_AFFECTED_CODE_ABSENT`, `NOT_AFFECTED_OCP`, `NOT_BUILT`, `BLOCKED_ON_OCP`, `BASE_BUMP_NEEDED`, `AFFECTED`, `NEEDS_REVIEW` or `SKIPPED` (embargoed)
 7. Writes `report-<timestamp>.md` / `.json` to `cve_triage.report_dir` and posts a Slack summary (counts + Jira links only) to `cve_triage.slack_channel`
 
@@ -241,6 +241,8 @@ The triage is deterministic: API lookups, file parsing and a fixed rule order, w
     Jira REST: open SecurityTracking tickets (MTV)
       [mtv-2.11] -> release-2.11 | CVE-* label -> CVE | pscomponent -> component
       skip tickets that already carry a triage:* label
+      (except triage:blocked-upstream: its blocking condition is
+       external and can clear, so those are re-triaged every run)
                                   |
  2. ANALYZE  (once per branch + component; once per CVE)
     OSV: vulnerable ranges + import paths    Operator bundle on the branch:

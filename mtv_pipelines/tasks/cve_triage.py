@@ -104,6 +104,9 @@ class Facts:
     # Streams of the OCPBUGS trackers the search returned; None when the
     # search wasn't run or failed. Explains a miss in the evidence.
     ocp_streams: list[str] | None = None
+    # Newest same-stream assembly of the base image: {"tag", "python"} or
+    # {"uptodate": True} or {"error": ...}; None when not scanned.
+    base_newest: dict | None = None
 
 
 # --- Jira ticket parsing ----------------------------------------------------
@@ -526,6 +529,43 @@ def _describe_ranges(ranges: list[VulnRange]) -> str:
     return "; ".join(parts) or "unknown"
 
 
+def newest_base_verdict(
+    facts: Facts, vulnerable: list[FoundPackage]
+) -> tuple[str | None, list[str]]:
+    """Whether the newest same-stream base assembly ships the vulnerable
+    packages fixed: ("fixed" | "vulnerable" | None, evidence lines).
+
+    None means no verdict — no scan, a failed scan, or no version ranges to
+    compare against. "vulnerable" includes the pinned-tag-is-newest case:
+    the shipped image already showed those versions, so no bump exists.
+    """
+    newest = facts.base_newest
+    if not newest or not facts.ranges or not vulnerable:
+        return None, []
+    if newest.get("uptodate"):
+        return "vulnerable", [
+            "The pinned base tag is already the newest assembly in its "
+            "stream; no bump is available."
+        ]
+    if "error" in newest:
+        return None, [f"Newest base assembly scan failed: {newest['error']}"]
+    evidence = [f"Newest base assembly {newest['tag']}:"]
+    verdict = None
+    for p in vulnerable:
+        entry = newest.get("python", {}).get(normalize_name(p.name))
+        if entry is None:
+            evidence.append(f"  {p.name}: not present")
+            continue
+        version = entry[0]
+        if is_vulnerable(version, facts.ranges):
+            evidence.append(f"  {p.name} {version}: still vulnerable")
+            verdict = "vulnerable"
+        else:
+            evidence.append(f"  {p.name} {version}: fixed")
+            verdict = verdict or "fixed"
+    return verdict, evidence
+
+
 def classify(facts: Facts, jira_url: str) -> tuple[str, list[str]]:
     t = facts.ticket
     if t.embargoed:
@@ -579,6 +619,10 @@ def classify(facts: Facts, jira_url: str) -> tuple[str, list[str]]:
             "which isn't an OpenShift image with an OCPBUGS tracker."
         ]
     evidence.append(f"Base image: {base.ref} (OpenShift {base.stream})")
+    # What a dep_bump base refresh would get us, measured directly from the
+    # newest assembly rather than inferred from the OCPBUGS status.
+    verdict, scan_evidence = newest_base_verdict(facts, vulnerable)
+    evidence += scan_evidence
     if facts.ocp is None:
         if facts.ocp_streams is None:
             searched = "The OCPBUGS lookup failed."
@@ -605,6 +649,10 @@ def classify(facts: Facts, jira_url: str) -> tuple[str, list[str]]:
         return NOT_AFFECTED_OCP, evidence
     if not facts.ranges:
         return NEEDS_REVIEW, evidence + ["No fixed version known for this CVE."]
+    # The newest assembly itself ships a fixed version: a base bump fixes
+    # this regardless of the tracker's status.
+    if verdict == "fixed":
+        return BASE_BUMP_NEEDED, evidence
     if ocp.resolution in OCP_FIXED_RESOLUTIONS:
         return BASE_BUMP_NEEDED, evidence
     return BLOCKED_ON_OCP, evidence

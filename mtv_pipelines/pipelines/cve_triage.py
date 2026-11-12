@@ -49,6 +49,7 @@ from tasks.cve_triage import (
     scan_image_dir,
     stream_from_version,
 )
+from tasks.dep_bump import newest_in_stream, split_ref
 from utils import create_temp_dir, replace_for_quay
 from wrappers import osv
 from wrappers.osv import OsvLookupError
@@ -150,11 +151,19 @@ async def collect_tickets(
         return CveTicketsDTO(skipped=True, skip_reason=f"Jira search: {e}")
 
     branches = _split(args.branches)
+    # blocked-upstream is the one label whose blocking condition is external
+    # and can clear (the OCPBUGS tracker resolving): re-triage those so they
+    # flip to needs-fix and get linked into dep_bump PRs. Everything else is
+    # a terminal assessment for a human to act on.
+    blocked_label = config.get_cve_triage()["labels"]["BLOCKED_ON_OCP"]
     tickets = []
     for ticket in (parse_ticket(i) for i in issues):
         if branches and ticket.branch not in branches:
             continue
-        if not keys and any(lbl.startswith("triage:") for lbl in ticket.labels):
+        if not keys and any(
+            lbl.startswith("triage:") and lbl != blocked_label
+            for lbl in ticket.labels
+        ):
             logger.info(f"{ticket.key} already triaged; skipping")
             continue
         tickets.append(ticket)
@@ -231,6 +240,52 @@ def _scan_component(
     ) as e:
         logger.warning(f"Scan of {component} on {branch} failed: {e}")
         return {"error": f"Could not scan {component} on {branch}: {e}"}
+
+
+def _scan_newest_base(base: BaseImage, needles: set[str]) -> dict:
+    """Python package versions in the newest same-stream base assembly.
+
+    Answers "would dep_bump's refresh fix this": the tag is picked by the
+    same newest_in_stream dep_bump uses, with every published minor
+    considered settled (the scan asks what is available today).
+    """
+    try:
+        return _scan_newest_base_unguarded(base, needles)
+    except (
+        RuntimeError,
+        OSError,
+        KeyError,
+        ValueError,
+        tarfile.TarError,
+        requests.RequestException,
+    ) as e:
+        logger.warning(f"Newest-assembly scan of {base.ref} failed: {e}")
+        return {"error": f"Could not scan the newest assembly of {base.ref}: {e}"}
+
+
+def _scan_newest_base_unguarded(base: BaseImage, needles: set[str]) -> dict:
+    ct = config.get_cve_triage()
+    repo, tag, _ = split_ref(base.ref)
+    newest = newest_in_stream(
+        tag,
+        Skopeo().list_tags(repo),
+        settled_before=int(datetime.datetime.now().timestamp()),
+    )
+    if not newest:
+        return {"error": f"No tag of {repo} matches {tag}'s stream"}
+    if newest == tag:
+        return {"uptodate": True, "tag": tag}
+    tmp = create_temp_dir(
+        f"cve-triage-newest-{base.component.replace('/', '-')}"
+    )
+    try:
+        Skopeo().copy(f"{repo}:{newest}", tmp.name, arch=ct["arch"])
+        _, python = scan_image_dir(
+            tmp.name, ct["scan_prefixes"], set(), needles
+        )
+    finally:
+        tmp.cleanup()
+    return {"tag": newest, "python": python}
 
 
 def _scan_component_unguarded(
@@ -354,6 +409,21 @@ async def analyze(
         if not isinstance(value, dict):
             scans[key] = await value
 
+    # One newest-assembly scan per distinct OpenShift base among the scans,
+    # so "would dep_bump's refresh fix this" is measured, not inferred.
+    base_scans: dict[str, object] = {}
+    for (branch, component), needles in groups.items():
+        scan = scans.get((branch, component))
+        base = scan.get("base") if isinstance(scan, dict) else None
+        if base and base.component.startswith("openshift4/"):
+            base_scans.setdefault(
+                base.ref,
+                tg.create_task(to_thread(_scan_newest_base, base, needles)),
+            )
+    for ref, value in base_scans.items():
+        if not isinstance(value, dict):
+            base_scans[ref] = await value
+
     jira = Jira()
     ocp_cache: dict[tuple, list[dict] | None] = {}
     findings = []
@@ -399,6 +469,7 @@ async def analyze(
                     facts.ocp, facts.ocp_streams = _lookup_ocp(
                         jira, ocp_cache, t.cve, base
                     )
+                    facts.base_newest = base_scans.get(base.ref)
 
         category, evidence = classify(facts, jira_url)
         logger.info(f"{t.key}: {category}")
@@ -441,13 +512,17 @@ def _lookup_ocp(
 
 
 def _apply(jira: Jira, finding: CveFindingDTO) -> bool:
-    """Comment (once) and label; True when a new comment was posted.
+    """Comment (once per category) and label; True when a new comment was
+    posted.
 
-    The label is added even when the comment already exists, so a run that
-    commented but failed to label is completed by the next one.
+    The marker is category-specific, so a re-triaged ticket whose assessment
+    changed gets a fresh comment — dep_bump matches base-image tickets by the
+    BASE_BUMP_NEEDED marker in the comment, not just the label. The label is
+    added even when the comment already exists, so a run that commented but
+    failed to label is completed by the next one.
     """
     key = finding.ticket.key
-    marker = COMMENT_MARKER.split("{", 1)[0]
+    marker = COMMENT_MARKER.format(category=finding.category)
     commented = any(marker in body for body in jira.get_comments(key))
     if commented:
         logger.info(f"{key} already has a cve-triage comment; labelling only")
