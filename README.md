@@ -101,27 +101,30 @@ The main end-to-end automation pipeline:
 
 **Key flags:** `--process-version`, `--process-bundle`, `--skip-jenkins`, `--skip-slack`
 
-After Konflux FBC checks pass, `automatic_iib` also upserts `/app/data/latest_iib.json` (host `./data/latest_iib.json`) for versions listed under `tier1_jobs` in `config.yaml`. Saturday `trigger_tier1` reads that pointer. Konflux is not the scheduler.
+After Konflux FBC checks pass, `automatic_iib` also upserts `/app/data/latest_iib.json` (host `./data/latest_iib.json`) for versions listed under the `tier1_jobs` / `hyperv_gate_jobs` maps in `config.yaml`. Saturday `trigger_weekly_gates` reads that pointer. Konflux is not the scheduler.
 
-### `trigger_tier1`
-Weekly (Saturday) pipeline: trigger dedicated Jenkins tier1 jobs against the latest IIB recorded by `automatic_iib`.
+### `trigger_weekly_gates`
+Weekly (Saturday) pipeline: trigger the weekly gate Jenkins jobs (tier1, and for MTV 5.0+ the Hyper-V gate) against the latest IIB recorded by `automatic_iib`.
 
 1. Read `data/latest_iib.json` (missing file → nothing to do until the first successful weekday IIB)
 2. For each `tier1_jobs` entry (today: MTV 2.12 on OCP 4.22, MTV 5.0 on OCP 5.0), rewrite the IIB OCP infix and trigger `mtv-{xy}-ocp-{ocp}-test-tier1` unless `last_tier1_iib` already equals that IIB
-3. After Jenkins accepts the job, set `last_tier1_iib` so the same IIB is not tested again
-4. Post a Slack parent thread per version on the same slackMTV bot / `slack_builds_channel` as weekday builds (not the IIB changelog), then job links
-5. Wait for Jenkins, run the analyzer (best-effort), post CI pass/fail in the same thread
+3. For each `hyperv_gate_jobs` entry (MTV 5.0 and newer only), trigger `mtv-{xy}-ocp-{ocp}-test-hyperv-gate` unless `last_hyperv_iib` already equals that IIB — deduped independently of tier1, so a gate that hasn't run an IIB yet still triggers it even if the other gate already has
+4. After Jenkins accepts a job, set its `last_*_iib` so the same IIB is not tested again by that gate
+5. Post a Slack parent thread per version on the same slackMTV bot / `slack_builds_channel` as weekday builds (not the IIB changelog), then job links
+6. Wait for Jenkins, run the analyzer (best-effort), post CI pass/fail in the same thread
+
+Both gates for the same OCP version share one cluster (e.g. MTV 5.0 tier1 and Hyper-V gate both run on the OCP 5.0 cluster); the Jenkins cluster lock serializes them.
 
 The container stays up until Jenkins finishes, like `automatic_iib`. This is not a Konflux timer; run it from the same releng host and `./data/` volume as weekday IIB automation:
 
 ```bash
-make run ARGS="trigger_tier1"
+make run ARGS="trigger_weekly_gates"
 ```
 
 Host crontab example (ops, not stored in this repo):
 
 ```cron
-0 8 * * 6 cd /path/to/mtv-releng && make run ARGS="trigger_tier1"
+0 8 * * 6 cd /path/to/mtv-releng && make run ARGS="trigger_weekly_gates"
 ```
 
 Pointer file shape (one key per MTV x.y):
@@ -133,6 +136,13 @@ Pointer file shape (one key per MTV x.y):
     "iib": "forklift-fbc-prod-v50:on-pr-abc123",
     "recorded_at": "2026-09-17T14:02:00Z",
     "last_tier1_iib": null
+  },
+  "5.0": {
+    "mtv_version": "5.0.0",
+    "iib": "forklift-fbc-prod-v50:on-pr-abc123",
+    "recorded_at": "2026-09-17T14:02:00Z",
+    "last_tier1_iib": null,
+    "last_hyperv_iib": null
   }
 }
 ```
@@ -440,7 +450,7 @@ All tunable settings live in [`mtv_pipelines/config/config.yaml`](mtv_pipelines/
 - Component mappings (`cmp_mappings`) — downstream name → upstream + git origin
 - Commit character limit for Slack messages
 - Storage offload cluster mappings (`storage_offload_clusters`) — MTV x.y → cluster name, API URL, OCP version, and `password_env`
-- Saturday tier1 job map (`tier1_jobs`) — MTV x.y → OCP version for `mtv-{xy}-ocp-{ocp}-test-tier1`, plus `latest_iib_state_path`
+- Saturday weekly gate config (`weekly_gates`) — gate name → jobs getter, Jenkins job suffix, and trigger method for the Saturday `trigger_weekly_gates` pipeline; per-gate job maps (`tier1_jobs`, `hyperv_gate_jobs`) — MTV x.y → OCP version, plus `latest_iib_state_path`
 
 ### Storage offload clusters
 

@@ -500,7 +500,7 @@ class Slack:
         )
         logger.info({"Triggered CI jobs slack message TS": ts})
 
-    def send_tier1_run(
+    def send_weekly_gates_run(
         self,
         mtv_version: str,
         ocp_version: str,
@@ -508,13 +508,13 @@ class Slack:
     ) -> SlackBuildMessageTSDTO:
         dt = datetime.now(UTC).strftime("%d.%m.%Y %H:%M")
         builder = SlackBuilder()
-        builder.header(f"TIER1 {mtv_version} | {dt} UTC")
+        builder.header(f"WEEKLY GATES {mtv_version} | {dt} UTC")
         builder.context(["*Build type*  |  Saturday weekly"])
         builder.section(
             f"*MTV*  {mtv_version}\n*OCP*  {ocp_version}\n*IIB*  `{iib}`"
         )
         ts = self.send_block(builder.build(), self.channel)
-        logger.info({"Tier1 slack parent TS": ts})
+        logger.info({"Weekly gates slack parent TS": ts})
         return SlackBuildMessageTSDTO(
             iib_version=mtv_version, timestamp=ts
         )

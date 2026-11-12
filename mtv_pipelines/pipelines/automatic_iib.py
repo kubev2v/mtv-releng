@@ -331,10 +331,15 @@ async def record_latest_iib(
         record_from_fbc_repos(
             data,
             path=config.get_latest_iib_state_path(),
-            tier1_jobs=config.get_tier1_jobs(),
+            # The pointer file serves every weekly gate: record versions
+            # from either gate map, not just tier1.
+            tier1_jobs={
+                **config.get_tier1_jobs(),
+                **config.get_hyperv_gate_jobs(),
+            },
         )
     except (OSError, RuntimeError):
-        logger.exception("Failed to record latest IIB pointer for tier1")
+        logger.exception("Failed to record latest IIB pointer")
     return EmptyDTO()
 
 

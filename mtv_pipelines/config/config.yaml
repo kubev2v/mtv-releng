@@ -32,6 +32,27 @@ tier1_jobs:
   "5.0":
     ocp_version: "5.0"
 
+# Saturday Hyper-V gate Jenkins jobs (MTV 5.0 and newer only): MTV x.y ->
+# dedicated OCP. Job name is mtv-{xy}-ocp-{ocp_version}-test-hyperv-gate.
+# An empty map disables the gate without affecting the tier1 gates.
+hyperv_gate_jobs:
+  "5.0":
+    ocp_version: "5.0"
+
+# Weekly gates run by the Saturday trigger_weekly_gates pipeline.
+# Gate name -> jobs getter (config.py), Jenkins job suffix, and trigger
+# method (wrappers/jenkins.py). The per-gate dedup key in latest_iib.json
+# is last_{gate}_iib. Removing a gate here stops its Saturday trigger.
+weekly_gates:
+  tier1:
+    jobs_getter: get_tier1_jobs
+    job_suffix: test-tier1
+    trigger_method: trigger_tier1
+  hyperv:
+    jobs_getter: get_hyperv_gate_jobs
+    job_suffix: test-hyperv-gate
+    trigger_method: trigger_hyperv_gate
+
 # Cluster to OCP version mapping
 # if you want to disable CI for some OCP version, use "none"
 #

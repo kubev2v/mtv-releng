@@ -173,6 +173,16 @@ def get_tier1_jobs() -> dict:
     return _parse_simple("tier1_jobs")
 
 
+def get_hyperv_gate_jobs() -> dict:
+    # Missing/empty map disables the optional Hyper-V gate; tier1_jobs
+    # stays mandatory (an empty tier1_jobs is a broken config).
+    return read_config().get("hyperv_gate_jobs") or {}
+
+
+def get_weekly_gates() -> dict:
+    return _parse_simple("weekly_gates")
+
+
 def get_latest_iib_state_path() -> str:
     return _parse_simple("latest_iib_state_path")
 
