@@ -157,7 +157,7 @@ Computes the commit diff between two IIBs.
 **Key flags:** `--new_iib`, `--old_iib`, `--old_version`, `--new_version`
 
 ### `create_fbc_release`
-Creates a release branch in the FBC repo and opens a PR.
+Creates a release branch in the FBC repo and opens a PR. Each catalog it renders gets its `defaultChannel` set to the newest Y stream channel it contains (`release-vX.Y`, compared numerically, so `release-v5.0` beats `release-v2.12`).
 
 **Key flags:** `--process-bundle`
 
@@ -169,7 +169,7 @@ Waits for Jenkins job URLs to finish, analyzes failures, and optionally posts to
 ### `btrfs_sync`
 Mirrors a public forklift branch into the internal GitLab repository (rebases onto the internal mirror and origin, then force-pushes). Uses shallow, targeted fetches. Python port of `scripts/btrfs_sync.sh`.
 
-**Key flags:** `--branch` (required), `--dry-run`
+**Key flags:** `--branch` (required), `--dry-run`, `--fetch-depth` (overrides `btrfs_sync.fetch_depth` without an image rebuild; `0` fetches the full history)
 
 ### `bundle_sync`
 Updates `Containerfile-downstream` ARG `*_IMAGE` SHA references from the latest stage snapshot and opens (or rebases and updates an existing) PR against the target branch. Pulls the virt-v2v-int SHA from the internal quay tenant. Python port of `scripts/bundle_sync.sh`. **Dry-run by default** — pass `--apply` to push.

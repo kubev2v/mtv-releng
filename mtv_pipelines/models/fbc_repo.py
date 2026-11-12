@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import subprocess
 
 from auth.auth import REGISTRY_PROD_TOKEN, REGISTRY_PROD_USER
@@ -10,6 +11,8 @@ from models.iib import IIB
 from semver import Version
 from utils import create_temp_dir
 from wrappers.git import Git
+
+_RELEASE_CHANNEL = re.compile(r"^release-v(\d+)\.(\d+)$")
 
 
 class FBCRepo:
@@ -63,7 +66,34 @@ class FBCRepo:
             err = result.stderr.decode("utf-8")
             raise RuntimeError(err)
 
+    def update_default_channel(self, catalog: str):
+        """Point defaultChannel at the newest Y stream channel
+        (release-vX.Y) in the catalog; other channel names are ignored."""
+        content = self._read_catalog(catalog)
+        streams = []
+        for entry in content.get("entries"):
+            if entry.get("schema") != "olm.channel":
+                continue
+            m = _RELEASE_CHANNEL.match(entry.get("name", ""))
+            if m:
+                streams.append((int(m.group(1)), int(m.group(2))))
+        if not streams:
+            return
+        major, minor = max(streams)
+        newest = f"release-v{major}.{minor}"
+        for entry in content.get("entries"):
+            if entry.get("schema") == "olm.package":
+                if entry.get("defaultChannel") != newest:
+                    self.logger.info(
+                        f"Setting defaultChannel of {catalog} to {newest}"
+                        f" (was {entry.get('defaultChannel')})"
+                    )
+                    entry["defaultChannel"] = newest
+                    self._write_catalog(catalog, content)
+                return
+
     def render_catalog(self, catalog: str):
+        self.update_default_channel(catalog)
         self.logger.info(f"Rendering catalog {catalog}")
         result = subprocess.run(
             [
