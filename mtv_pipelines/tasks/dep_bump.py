@@ -580,6 +580,10 @@ def render_body(result: DepBumpRepoResultDTO, rpm_script: str) -> str:
             f"  {rpm_script} /path/to/checkout {comps}",
             "```",
             "",
+            "(Both unset: the script falls back to `REGISTRY_PROD_USER`/"
+            "`REGISTRY_PROD_TOKEN`, e.g. `set -a; source mtv-releng/.env; "
+            "set +a`.)",
+            "",
             "Then commit the regenerated `redhat.repo` / `rpms.lock.yaml` "
             "files to this branch.",
         ]

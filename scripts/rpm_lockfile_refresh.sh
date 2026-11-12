@@ -11,6 +11,11 @@
 #   REGISTRY_AUTH_PASS=... \
 #     scripts/rpm_lockfile_refresh.sh /path/to/checkout [component-dir ...]
 #
+# The registry login is found automatically when scripts/auth.sh (the legacy
+# bash pipelines' gitignored credential file) sits next to this script, or
+# REGISTRY_PROD_USER/REGISTRY_PROD_TOKEN (the pipeline .env's pair, same
+# service account) is exported.
+#
 # component-dir is the directory holding rpms.in.yaml, relative to the
 # checkout (".konflux/forklift-api", ".konflux/virt-v2v/appliance", "." for
 # must-gather). Without any, every rpms.in.yaml in the checkout is refreshed.
@@ -39,8 +44,27 @@ die() { echo "error: $*" >&2; exit 1; }
 [[ $# -ge 1 ]] || die "usage: $0 <checkout> [component-dir ...]"
 CHECKOUT="$(cd "$1" && pwd)" || die "no such checkout: $1"
 shift
-: "${REGISTRY_AUTH_USER:?set REGISTRY_AUTH_USER}"
-: "${REGISTRY_AUTH_PASS:?set REGISTRY_AUTH_PASS}"
+# Registry login, in order of preference: REGISTRY_AUTH_USER/PASS in the
+# environment, the legacy bash pipelines' scripts/auth.sh (defines the pair
+# lowercase, like the other scripts that source it), or the pipeline .env's
+# REGISTRY_PROD_USER/REGISTRY_PROD_TOKEN (same registry.redhat.io service
+# account).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${REGISTRY_AUTH_USER:-}" || -z "${REGISTRY_AUTH_PASS:-}" ]]; then
+  # auth.sh exports the pair first, then runs its own skopeo logins (the
+  # legacy scripts rely on those); a failed login there must not abort the
+  # refresh — the exports are already in place by then.
+  if [[ -f "$SCRIPT_DIR/auth.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/auth.sh" || true
+  fi
+  : "${REGISTRY_AUTH_USER:=${registry_auth_user:-}}"
+  : "${REGISTRY_AUTH_PASS:=${registry_auth_pass:-}}"
+fi
+: "${REGISTRY_AUTH_USER:=${REGISTRY_PROD_USER:-}}"
+: "${REGISTRY_AUTH_PASS:=${REGISTRY_PROD_TOKEN:-}}"
+: "${REGISTRY_AUTH_USER:?set REGISTRY_AUTH_USER (or auth.sh, or REGISTRY_PROD_USER)}"
+: "${REGISTRY_AUTH_PASS:?set REGISTRY_AUTH_PASS (or auth.sh, or REGISTRY_PROD_TOKEN)}"
 export REGISTRY_AUTH_USER REGISTRY_AUTH_PASS
 command -v podman >/dev/null || die "podman is required"
 command -v skopeo >/dev/null || die "skopeo is required"
