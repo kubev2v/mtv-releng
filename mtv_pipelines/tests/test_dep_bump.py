@@ -863,6 +863,18 @@ def test_go_build_matches_konflux_mod_flags():
     assert second.kwargs["env"]["GOFLAGS"].startswith("-mod=readonly")
 
 
+def test_first_line_keeps_cause_after_imports_header():
+    # go mod tidy reports an "x imports" header line; the cause follows it
+    err = GoCommandError(
+        "go: github.com/kubev2v/forklift/cmd/hyperv-provider-server imports\n"
+        "\tgithub.com/kubev2v/forklift/pkg/libvirt: no required module "
+        "provides package github.com/libvirt/libvirt-go\n"
+    )
+    assert "no required module" in pipeline._first_line(err)
+    # Plain one-line errors are unaffected
+    assert pipeline._first_line(GoCommandError("boom")) == "boom"
+
+
 def test_go_parallelism_caps_gomaxprocs():
     from wrappers.go import Go
 
