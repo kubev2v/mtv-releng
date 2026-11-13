@@ -523,6 +523,47 @@ def test_classify_blocked_when_newest_scan_failed():
     )
 
 
+def test_classify_without_tracker_uses_newest_assembly_verdict():
+    # An RHEL-managed package inside the OSE base (e.g. pip) has no OCPBUGS
+    # tracker; the newest-assembly scan decides instead of NEEDS_REVIEW.
+    kwargs = dict(
+        candidates=["pip"],
+        found=[FoundPackage("pip", "23.2.1", "/usr/local/lib/python3.12", True)],
+        ranges=ct.ranges_from_text("fixed in version 25.3"),
+        base=OCP_OPERATOR,
+        ocp=None,
+    )
+    vulnerable_newest = {
+        "tag": "v4.18.0-202611031655.p2.g7210687.assembly.stream.el9",
+        "python": {
+            "pip": (
+                "23.2.1",
+                "usr/local/lib/python3.12/site-packages/"
+                "pip-23.2.1.dist-info/METADATA",
+                True,
+            )
+        },
+    }
+    assert (
+        _classify(base_newest=vulnerable_newest, **kwargs)
+        == ct.BLOCKED_ON_OCP
+    )
+    fixed_newest = {
+        "tag": "v4.18.0-202612011655.p2.g7210687.assembly.stream.el9",
+        "python": {
+            "pip": (
+                "25.3",
+                "usr/local/lib/python3.12/site-packages/"
+                "pip-25.3.dist-info/METADATA",
+                True,
+            )
+        },
+    }
+    assert _classify(base_newest=fixed_newest, **kwargs) == ct.BASE_BUMP_NEEDED
+    # No verdict (scan missing): unchanged NEEDS_REVIEW fallback
+    assert _classify(base_newest=None, **kwargs) == ct.NEEDS_REVIEW
+
+
 def test_classify_affected_when_mtv_builds_vulnerable_version():
     # e.g. MTV-6783 before the code-absent check: mongo-driver 1.17.6 in xcopy
     assert (

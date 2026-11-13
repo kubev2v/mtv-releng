@@ -636,6 +636,17 @@ def classify(facts: Facts, jira_url: str) -> tuple[str, list[str]]:
                 "The OCPBUGS search returned trackers for "
                 f"{', '.join(facts.ocp_streams)} only."
             )
+        # No OCPBUGS tracker — the package may be RHEL-managed inside the
+        # OSE image rather than OCP-tracked (e.g. pip). The newest-assembly
+        # scan is still ground truth for "would a bump fix it", so let it
+        # decide when it can; only fall back to NEEDS_REVIEW without it.
+        if verdict == "fixed":
+            return BASE_BUMP_NEEDED, evidence
+        if verdict == "vulnerable":
+            return BLOCKED_ON_OCP, evidence + [
+                f"No OCPBUGS tracker for {t.cve} on {base.component} "
+                f"[openshift-{base.stream}]. {searched}"
+            ]
         return NEEDS_REVIEW, evidence + [
             f"No OCPBUGS tracker found for {t.cve} on {base.component} "
             f"[openshift-{base.stream}]. {searched}"
