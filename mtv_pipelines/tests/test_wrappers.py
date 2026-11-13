@@ -1025,9 +1025,9 @@ class TestSlack:
         assert call_kwargs["thread_ts"] == "111.222"
         assert ts == "333.444"
 
-    def test_send_tier1_run_posts_parent_and_returns_timestamp(self, slack):
+    def test_send_weekly_gates_run_posts_parent_and_returns_timestamp(self, slack):
         slack.client.chat_postMessage.return_value = {"ts": "555.666"}
-        result = slack.send_tier1_run(
+        result = slack.send_weekly_gates_run(
             "2.12.6",
             "4.22",
             "forklift-fbc-prod-v422:on-pr-abc",
@@ -1038,7 +1038,7 @@ class TestSlack:
         assert call_kwargs["channel"] == "#builds"
         blocks = call_kwargs["blocks"]
         header = blocks[0]["text"]["text"]
-        assert header.startswith("TIER1 2.12.6 |")
+        assert header.startswith("WEEKLY GATES 2.12.6 |")
         assert header.endswith("UTC")
         blob = json.dumps(blocks)
         assert "Saturday weekly" in blob

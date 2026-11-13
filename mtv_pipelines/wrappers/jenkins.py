@@ -204,6 +204,14 @@ class JenkinsManager:
             args["MATRIX_TYPE"] = "TIER1"
         return args
 
+    def get_test_hyperv_gate_args(
+        self, mtv_version: str, ocp_version: str, iib: str
+    ) -> dict:
+        args = self.get_test_release_gate_args(mtv_version, ocp_version, iib)
+        if args:
+            args["MATRIX_TYPE"] = "HYPERV"
+        return args
+
     def get_upgrade_args(
         self, mtv_version: str, ocp_version: str, iib: str, upgrade_from_version: str
     ) -> dict:
@@ -331,6 +339,28 @@ class JenkinsManager:
         ocp_wv = ocp_version.replace("v", "")
 
         job_name = f"mtv-{mtv_xy}-ocp-{ocp_wv}-test-tier1"
+        job_number = await self.run_job(job_name, ci_args)
+        if job_number:
+            return {"job_name": job_name, "job_number": job_number}
+        else:
+            return {}
+
+    async def trigger_hyperv_gate(
+        self, mtv_version: str, ocp_version: str, iib: str
+    ) -> dict:
+        ci_args = self.get_test_hyperv_gate_args(
+            mtv_version, ocp_version.replace("v", ""), iib
+        )
+        if not ci_args:
+            logger.warning(
+                f"Missing arguments, can't trigger a job for "
+                f"{ocp_version}/{mtv_version}"
+            )
+            return {}
+        mtv_xy = ".".join(mtv_version.split(".")[:2])
+        ocp_wv = ocp_version.replace("v", "")
+
+        job_name = f"mtv-{mtv_xy}-ocp-{ocp_wv}-test-hyperv-gate"
         job_number = await self.run_job(job_name, ci_args)
         if job_number:
             return {"job_name": job_name, "job_number": job_number}

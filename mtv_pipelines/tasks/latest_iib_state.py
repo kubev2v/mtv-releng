@@ -81,30 +81,47 @@ def upsert_latest(
     iib: str,
     recorded_at: str | None = None,
 ) -> None:
+    """Update the IIB pointer, keeping every per-gate last_*_iib dedup key."""
     state = load_state(path)
     existing = state.get(mtv_xy, {})
     state[mtv_xy] = {
+        **{k: v for k, v in existing.items() if k.startswith("last_")},
         "mtv_version": mtv_version,
         "iib": iib,
         "recorded_at": recorded_at or utc_now_iso(),
-        "last_tier1_iib": existing.get("last_tier1_iib"),
     }
     save_state(path, state)
 
 
-def mark_tier1_triggered(path: str | Path, mtv_xy: str, iib: str) -> None:
+def _mark_triggered(
+    path: str | Path, mtv_xy: str, iib: str, state_key: str
+) -> None:
     state = load_state(path)
     if mtv_xy not in state:
         logger.warning(
-            f"Cannot mark tier1 trigger for {mtv_xy}: no pointer in {path}"
+            f"Cannot mark trigger for {mtv_xy}: no pointer in {path}"
         )
         return
-    state[mtv_xy]["last_tier1_iib"] = iib
+    state[mtv_xy][state_key] = iib
     save_state(path, state)
 
 
-def iter_tier1_targets(tier1_jobs: dict, state: dict):
-    for mtv_xy, cfg in tier1_jobs.items():
+def mark_tier1_triggered(path: str | Path, mtv_xy: str, iib: str) -> None:
+    """Record that the tier1 gate already ran for this IIB."""
+    _mark_triggered(path, mtv_xy, iib, "last_tier1_iib")
+
+
+def mark_hyperv_triggered(path: str | Path, mtv_xy: str, iib: str) -> None:
+    """Record that the Hyper-V gate already ran for this IIB."""
+    _mark_triggered(path, mtv_xy, iib, "last_hyperv_iib")
+
+
+def iter_gate_targets(
+    jobs: dict, state: dict, state_key: str, gate: str
+):
+    """Yield one target per configured version, skipped when the gate
+    already ran for the recorded IIB (per-gate dedup via state_key)."""
+    for mtv_xy, cfg in jobs.items():
         ocp_version = str((cfg or {}).get("ocp_version", ""))
         entry = state.get(mtv_xy)
         if not entry:
@@ -115,13 +132,13 @@ def iter_tier1_targets(tier1_jobs: dict, state: dict):
             )
             continue
         iib = entry.get("iib") or ""
-        if iib and iib == entry.get("last_tier1_iib"):
+        if iib and iib == entry.get(state_key):
             yield Tier1Target(
                 mtv_xy=mtv_xy,
                 ocp_version=ocp_version,
                 mtv_version=str(entry.get("mtv_version", "")),
                 iib=iib,
-                skip_reason="tier1 already triggered for this IIB",
+                skip_reason=f"{gate} already triggered for this IIB",
             )
             continue
         yield Tier1Target(
@@ -130,6 +147,18 @@ def iter_tier1_targets(tier1_jobs: dict, state: dict):
             mtv_version=str(entry.get("mtv_version", "")),
             iib=iib,
         )
+
+
+def iter_tier1_targets(tier1_jobs: dict, state: dict):
+    return iter_gate_targets(
+        tier1_jobs, state, state_key="last_tier1_iib", gate="tier1"
+    )
+
+
+def iter_hyperv_targets(hyperv_jobs: dict, state: dict):
+    return iter_gate_targets(
+        hyperv_jobs, state, state_key="last_hyperv_iib", gate="hyperv"
+    )
 
 
 def record_from_fbc_repos(

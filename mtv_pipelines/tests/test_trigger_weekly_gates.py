@@ -1,4 +1,4 @@
-"""Tests for Saturday trigger_tier1 pipeline helpers."""
+"""Tests for Saturday trigger_weekly_gates pipeline helpers."""
 
 import asyncio
 import json
@@ -15,7 +15,7 @@ from models.dto import (
 )
 from tasks.latest_iib_state import upsert_latest
 
-from pipelines import trigger_tier1 as pipeline
+from pipelines import trigger_weekly_gates as pipeline
 
 
 def run_task(task, data, args):
@@ -42,22 +42,22 @@ def _write_pointer(path, iib="forklift-fbc-prod-v50:on-pr-abc"):
     )
 
 
-class TestTriggerTier1Jobs:
+class TestTriggerWeeklyGateJobs:
     def test_missing_pointer_does_not_trigger(self, tmp_path):
         path = tmp_path / "latest_iib.json"
         with (
             patch(
-                "pipelines.trigger_tier1.config.get_latest_iib_state_path",
+                "pipelines.trigger_weekly_gates.config.get_latest_iib_state_path",
                 return_value=str(path),
             ),
             patch(
-                "pipelines.trigger_tier1.config.get_tier1_jobs",
+                "pipelines.trigger_weekly_gates.config.get_tier1_jobs",
                 return_value={"2.12": {"ocp_version": "4.22"}},
             ),
-            patch("pipelines.trigger_tier1.JenkinsManager") as mock_jm,
+            patch("pipelines.trigger_weekly_gates.JenkinsManager") as mock_jm,
         ):
             jobs = run_task(
-                pipeline.trigger_tier1_jobs, EmptyDTO(), _args()
+                pipeline.trigger_weekly_gate_jobs, EmptyDTO(), _args()
             )
         assert jobs == []
         mock_jm.assert_not_called()
@@ -77,24 +77,24 @@ class TestTriggerTier1Jobs:
         )
         with (
             patch(
-                "pipelines.trigger_tier1.config.get_latest_iib_state_path",
+                "pipelines.trigger_weekly_gates.config.get_latest_iib_state_path",
                 return_value=str(path),
             ),
             patch(
-                "pipelines.trigger_tier1.config.get_tier1_jobs",
+                "pipelines.trigger_weekly_gates.config.get_tier1_jobs",
                 return_value={"2.12": {"ocp_version": "4.22"}},
             ),
             patch(
-                "pipelines.trigger_tier1.config.get_jenkins_url",
+                "pipelines.trigger_weekly_gates.config.get_jenkins_url",
                 return_value="http://jenkins",
             ),
             patch(
-                "pipelines.trigger_tier1.JenkinsManager",
+                "pipelines.trigger_weekly_gates.JenkinsManager",
                 return_value=mgr,
             ),
         ):
             jobs = run_task(
-                pipeline.trigger_tier1_jobs, EmptyDTO(), _args()
+                pipeline.trigger_weekly_gate_jobs, EmptyDTO(), _args()
             )
         mgr.trigger_tier1.assert_awaited_once_with(
             "2.12.6",
@@ -136,27 +136,31 @@ class TestTriggerTier1Jobs:
         )
         with (
             patch(
-                "pipelines.trigger_tier1.config.get_latest_iib_state_path",
+                "pipelines.trigger_weekly_gates.config.get_latest_iib_state_path",
                 return_value=str(path),
             ),
             patch(
-                "pipelines.trigger_tier1.config.get_tier1_jobs",
+                "pipelines.trigger_weekly_gates.config.get_tier1_jobs",
                 return_value={
                     "2.12": {"ocp_version": "4.22"},
                     "5.0": {"ocp_version": "5.0"},
                 },
             ),
             patch(
-                "pipelines.trigger_tier1.config.get_jenkins_url",
+                "pipelines.trigger_weekly_gates.config.get_hyperv_gate_jobs",
+                return_value={},
+            ),
+            patch(
+                "pipelines.trigger_weekly_gates.config.get_jenkins_url",
                 return_value="http://jenkins",
             ),
             patch(
-                "pipelines.trigger_tier1.JenkinsManager",
+                "pipelines.trigger_weekly_gates.JenkinsManager",
                 return_value=mgr,
             ),
         ):
             jobs = run_task(
-                pipeline.trigger_tier1_jobs, EmptyDTO(), _args()
+                pipeline.trigger_weekly_gate_jobs, EmptyDTO(), _args()
             )
         assert len(jobs) == 1
         assert jobs[0].job_name == "mtv-5.0-ocp-5.0-test-tier1"
@@ -181,24 +185,24 @@ class TestTriggerTier1Jobs:
         )
         with (
             patch(
-                "pipelines.trigger_tier1.config.get_latest_iib_state_path",
+                "pipelines.trigger_weekly_gates.config.get_latest_iib_state_path",
                 return_value=str(path),
             ),
             patch(
-                "pipelines.trigger_tier1.config.get_tier1_jobs",
+                "pipelines.trigger_weekly_gates.config.get_tier1_jobs",
                 return_value={"2.12": {"ocp_version": "4.22"}},
             ),
             patch(
-                "pipelines.trigger_tier1.config.get_jenkins_url",
+                "pipelines.trigger_weekly_gates.config.get_jenkins_url",
                 return_value="http://jenkins",
             ),
             patch(
-                "pipelines.trigger_tier1.JenkinsManager",
+                "pipelines.trigger_weekly_gates.JenkinsManager",
                 return_value=mgr,
             ),
         ):
             jobs = run_task(
-                pipeline.trigger_tier1_jobs, EmptyDTO(), _args()
+                pipeline.trigger_weekly_gate_jobs, EmptyDTO(), _args()
             )
         assert len(jobs) == 1
         assert jobs[0].job_name == "mtv-2.12-ocp-4.22-test-tier1"
@@ -213,17 +217,17 @@ class TestTriggerTier1Jobs:
         _write_pointer(path)
         with (
             patch(
-                "pipelines.trigger_tier1.config.get_latest_iib_state_path",
+                "pipelines.trigger_weekly_gates.config.get_latest_iib_state_path",
                 return_value=str(path),
             ),
             patch(
-                "pipelines.trigger_tier1.config.get_tier1_jobs",
+                "pipelines.trigger_weekly_gates.config.get_tier1_jobs",
                 return_value={"2.12": {"ocp_version": "4.22"}},
             ),
-            patch("pipelines.trigger_tier1.JenkinsManager") as mock_jm,
+            patch("pipelines.trigger_weekly_gates.JenkinsManager") as mock_jm,
         ):
             jobs = run_task(
-                pipeline.trigger_tier1_jobs,
+                pipeline.trigger_weekly_gate_jobs,
                 EmptyDTO(),
                 _args(dry_run=True),
             )
@@ -232,7 +236,7 @@ class TestTriggerTier1Jobs:
         assert json.loads(path.read_text())["2.12"].get("last_tier1_iib") is None
 
 
-class TestSendTier1Slack:
+class TestSendWeeklyGateSlack:
     def _job(self):
         return JenkinsJobDTO(
             iib_version="2.12.6",
@@ -244,7 +248,7 @@ class TestSendTier1Slack:
 
     def test_skip_slack_returns_empty(self):
         ts = run_task(
-            pipeline.send_tier1_slack_triggered,
+            pipeline.send_weekly_gate_slack_triggered,
             [self._job()],
             _args(skip_slack=True),
         )
@@ -254,22 +258,22 @@ class TestSendTier1Slack:
         path = tmp_path / "latest_iib.json"
         _write_pointer(path)
         slack = MagicMock()
-        slack.send_tier1_run.return_value = SlackBuildMessageTSDTO(
+        slack.send_weekly_gates_run.return_value = SlackBuildMessageTSDTO(
             iib_version="2.12.6", timestamp="1.2"
         )
         with (
             patch(
-                "pipelines.trigger_tier1.config.get_latest_iib_state_path",
+                "pipelines.trigger_weekly_gates.config.get_latest_iib_state_path",
                 return_value=str(path),
             ),
-            patch("pipelines.trigger_tier1.Slack", return_value=slack),
+            patch("pipelines.trigger_weekly_gates.Slack", return_value=slack),
         ):
             result = run_task(
-                pipeline.send_tier1_slack_triggered,
+                pipeline.send_weekly_gate_slack_triggered,
                 [self._job()],
                 _args(),
             )
-        slack.send_tier1_run.assert_called_once_with(
+        slack.send_weekly_gates_run.assert_called_once_with(
             "2.12.6",
             "4.22",
             "forklift-fbc-prod-v422:on-pr-abc",
@@ -278,7 +282,7 @@ class TestSendTier1Slack:
         assert result[0].timestamp == "1.2"
 
 
-class TestSendTier1Ci:
+class TestSendWeeklyGateCi:
     def test_skip_slack_does_not_post_status(self):
         slack = MagicMock()
         jobs = [
@@ -304,13 +308,13 @@ class TestSendTier1Ci:
         ]
         data = CollectorDTO(
             task_outputs={
-                pipeline.analyze_tier1_jobs.name: jobs,
-                pipeline.send_tier1_slack_triggered.name: timestamps,
+                pipeline.analyze_weekly_gate_jobs.name: jobs,
+                pipeline.send_weekly_gate_slack_triggered.name: timestamps,
             }
         )
-        with patch("pipelines.trigger_tier1.Slack", return_value=slack):
+        with patch("pipelines.trigger_weekly_gates.Slack", return_value=slack):
             run_task(
-                pipeline.send_tier1_slack_ci,
+                pipeline.send_weekly_gate_slack_ci,
                 data,
                 _args(skip_slack=True),
             )
@@ -341,12 +345,12 @@ class TestSendTier1Ci:
         ]
         data = CollectorDTO(
             task_outputs={
-                pipeline.analyze_tier1_jobs.name: jobs,
-                pipeline.send_tier1_slack_triggered.name: timestamps,
+                pipeline.analyze_weekly_gate_jobs.name: jobs,
+                pipeline.send_weekly_gate_slack_triggered.name: timestamps,
             }
         )
-        with patch("pipelines.trigger_tier1.Slack", return_value=slack):
-            run_task(pipeline.send_tier1_slack_ci, data, _args())
+        with patch("pipelines.trigger_weekly_gates.Slack", return_value=slack):
+            run_task(pipeline.send_weekly_gate_slack_ci, data, _args())
         slack.send_ci_status.assert_called_once()
         posted_jobs, ts = slack.send_ci_status.call_args.args
         assert posted_jobs == jobs
