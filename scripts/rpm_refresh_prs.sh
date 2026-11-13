@@ -41,6 +41,20 @@ components_of() { # $1 = pr number
     | sed 's/.*rpm_lockfile_refresh.sh \/path\/to\/checkout //'
 }
 
+# Drop the refresh-request section from the PR body, keeping any section
+# that follows it. Once the lockfiles are pushed (or proven current), the
+# request is fulfilled — without this, every later run re-clones and
+# re-resolves the same PR just to find no diff.
+clear_refresh_request() { # $1 = pr number
+  gh pr view "$1" --repo "$REPO" --json body --jq .body | awk '
+    /^## RPM lockfiles need a refresh/ { drop = 1; next }
+    drop && /^## / { drop = 0 }
+    !drop { print }
+  ' | sed -e :a -e '/^$/N;/^\n$/D' > /tmp/pr-body.$$
+  gh pr edit "$1" --repo "$REPO" --body-file /tmp/pr-body.$$ >/dev/null
+  rm -f /tmp/pr-body.$$
+}
+
 count=0
 while read -r number head; do
   [ -n "${number:-}" ] || continue
@@ -62,6 +76,7 @@ while read -r number head; do
 
   if [ -z "$(git -C "$tmp/repo" status --porcelain)" ]; then
     log "PR $number: lockfiles already current; nothing to push"
+    clear_refresh_request "$number"
     continue
   fi
   git -C "$tmp/repo" add -A
@@ -72,6 +87,7 @@ while read -r number head; do
 Co-Authored-By: Claude Code <noreply@anthropic.com>"
   git -C "$tmp/repo" push -q --force-with-lease="$head:$sha" \
     origin "HEAD:refs/heads/$head"
+  clear_refresh_request "$number"
   log "PR $number: lockfiles pushed"
   count=$((count + 1))
 done < <(list_prs)
