@@ -326,7 +326,7 @@ cve_triage:
   report_dir: "/app/data/cve_triage"
   # Private Slack channel ID for the summary. Left empty, no summary is posted:
   # the findings concern non-public security trackers.
-  slack_channel: ""
+  slack_channel: "C0CGZGB8U6B"
   # Image and base image must be pulled for the same platform so layer
   # digests line up (that's how inherited files are detected)
   arch: "amd64"
