@@ -45,6 +45,56 @@ def arg_parse(arg_parser: ArgumentParser):
     )
 
 
+def _deepen(git: Git, branch: str, remote: str) -> None:
+    """Fetch *branch* from *remote* with its full history. A plain fetch
+    into a shallow repository leaves the shallow boundary in place, so the
+    boundary has to be lifted explicitly with --unshallow (git rejects
+    --unshallow on a complete repository, hence the check)."""
+    if git.is_shallow():
+        git.fetch(branch, origin=remote, unshallow=True)
+    else:
+        git.fetch(branch, origin=remote, depth=None)
+
+
+def _rebase_onto(
+    git: Git,
+    branch: str,
+    origin: str,
+    depth: int | None,
+    source_branch: str | None = None,
+) -> None:
+    """Rebase the current branch onto {origin}/{branch}.
+
+    A shallow fetch can hide the merge-base when the branches diverged by
+    more than the depth (e.g. the first sync after the cron was paused for
+    a few days): the rebase then replays commits the other side already
+    has, conflicting in exactly the files those commits touched. On a
+    conflict with a shallow fetch, abort, deepen both sides' history and
+    retry once — a conflict at full depth is real divergence and still
+    fails.
+
+    *source_branch* is the public branch the checkout came from ("main"
+    when *branch* was created from main); it, not *branch*, is the ref
+    that needs deepening on the origin side.
+    """
+    onto = f"{origin}/{branch}"
+    try:
+        git.rebase(onto)
+    except Exception as e:
+        if depth is None:
+            raise
+        logger.warning(
+            f"Rebase onto {onto} conflicted ({e}); retrying with a "
+            "full-depth fetch — the shallow window likely hid the "
+            "merge-base"
+        )
+        git.rebase_abort()
+        _deepen(git, source_branch or branch, "origin")
+        if origin != "origin":
+            _deepen(git, branch, origin)
+        git.rebase(onto)
+
+
 @task
 async def sync_branch(
     data, args: Namespace, tg: TaskGroup
@@ -104,14 +154,20 @@ async def sync_branch(
 
     if git.ref_exists(f"internal/{branch}"):
         logger.info(f"Rebasing onto internal/{branch}")
-        git.rebase(f"internal/{branch}")
+        _rebase_onto(
+            git,
+            branch,
+            "internal",
+            fetch_depth,
+            source_branch="main" if created_from_main else None,
+        )
     else:
         logger.info(f"Branch {branch} not on internal, skipping internal rebase")
 
     if git.ref_exists(f"origin/{branch}"):
         logger.info(f"Fetching and rebasing onto origin/{branch}")
         git.fetch(branch, origin="origin", depth=fetch_depth)
-        git.rebase(f"origin/{branch}")
+        _rebase_onto(git, branch, "origin", fetch_depth)
     else:
         logger.info("Branch created from main, skipping origin rebase")
 

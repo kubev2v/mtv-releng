@@ -171,14 +171,27 @@ class Git:
             )
 
     def fetch(
-        self, branch: str, origin: str = "origin", depth: int | None = None
+        self,
+        branch: str,
+        origin: str = "origin",
+        depth: int | None = None,
+        unshallow: bool = False,
     ) -> None:
         self._ensure_repo()
         logger.info(f"Fetching branch '{branch}' from origin '{origin}'")
         args = [origin, branch]
         if depth is not None:
             args = [f"--depth={depth}", *args]
+        if unshallow:
+            args = ["--unshallow", *args]
         self.repo.git.fetch(*args)
+
+    def is_shallow(self) -> bool:
+        self._ensure_repo()
+        return (
+            self.repo.git.rev_parse("--is-shallow-repository").strip()
+            == "true"
+        )
 
     def config(self, option: str, value: str):
         self._ensure_repo()

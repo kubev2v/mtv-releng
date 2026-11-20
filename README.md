@@ -177,7 +177,7 @@ Waits for Jenkins job URLs to finish, analyzes failures, and optionally posts to
 **Key flags:** `--ts`
 
 ### `btrfs_sync`
-Mirrors a public forklift branch into the internal GitLab repository (rebases onto the internal mirror and origin, then force-pushes). Uses shallow, targeted fetches. Python port of `scripts/btrfs_sync.sh`.
+Mirrors a public forklift branch into the internal GitLab repository (rebases onto the internal mirror and origin, then force-pushes). Uses shallow, targeted fetches; when a rebase conflicts under a shallow fetch (the depth window can hide the merge-base after a sync gap, replaying commits the other side already has), both sides are refetched in full and the rebase retried once before giving up. Python port of `scripts/btrfs_sync.sh`.
 
 **Key flags:** `--branch` (required), `--dry-run`, `--fetch-depth` (overrides `btrfs_sync.fetch_depth` without an image rebuild; `0` fetches the full history)
 
